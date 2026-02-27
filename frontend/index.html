@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LV2 Winding Status Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2333;
+  --border-default: #30363d;
+  --border-light: #3d444d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #656d76;
+  --status-ok: #3fb950;
+  --status-warning: #d29922;
+  --status-critical: #f85149;
+  --status-offline: #6e7681;
+  --status-info: #58a6ff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'IBM Plex Sans', 'Noto Sans KR', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+.condensed { font-family: 'IBM Plex Sans Condensed', sans-serif; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 200px 1fr; grid-template-rows: 44px 1fr; height: 100vh; }
+.header { grid-column: 1 / -1; background: var(--bg-secondary); border-bottom: 1px solid var(--border-default); display: flex; align-items: center; padding: 0 16px; gap: 20px; }
+.sidebar { background: var(--bg-secondary); border-right: 1px solid var(--border-default); padding: 8px 0; overflow-y: auto; }
+.main { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Header */
+.header .status-group { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.header .sep { width: 1px; height: 20px; background: var(--border-default); }
+.led { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.led.green { background: var(--status-ok); box-shadow: 0 0 4px var(--status-ok); }
+.led.yellow { background: var(--status-warning); box-shadow: 0 0 4px var(--status-warning); }
+.led.red { background: var(--status-critical); box-shadow: 0 0 4px var(--status-critical); }
+.led.gray { background: var(--status-offline); }
+
+/* Sidebar */
+.nav-item { padding: 8px 16px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); transition: background 100ms; }
+.nav-item:hover { background: var(--bg-tertiary); }
+.nav-item.active { background: var(--bg-tertiary); color: var(--text-primary); border-left: 2px solid var(--status-info); }
+.nav-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); padding: 12px 16px 4px; }
+
+/* Cards */
+.card { background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; }
+.card-header { padding: 8px 12px; border-bottom: 1px solid var(--border-default); font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.card-body { padding: 12px; }
+
+/* Grid layout */
+.grid-row { display: grid; gap: 12px; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.grid-top { grid-template-columns: 280px 1fr; }
+
+/* Data fields */
+.field { margin-bottom: 6px; }
+.field-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.field-value { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--text-primary); }
+.field-value.large { font-size: 18px; font-weight: 500; }
+
+/* Layer Grid */
+.layer-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.layer-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; border: 1px solid var(--border-default); border-radius: 3px; min-height: 48px; transition: border-color 150ms; }
+.layer-cell .layer-idx { font-size: 10px; color: var(--text-muted); margin-bottom: 2px; font-family: 'JetBrains Mono', monospace; }
+.layer-cell .layer-st { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 600; }
+.layer-cell.N { background: rgba(63,185,80,0.12); border-color: rgba(63,185,80,0.3); }
+.layer-cell.N .layer-st { color: var(--status-ok); }
+.layer-cell.T { background: rgba(210,153,34,0.12); border-color: rgba(210,153,34,0.3); }
+.layer-cell.T .layer-st { color: var(--status-warning); }
+.layer-cell.H { background: rgba(248,81,73,0.12); border-color: rgba(248,81,73,0.3); }
+.layer-cell.H .layer-st { color: var(--status-critical); }
+.layer-cell.U { background: rgba(110,118,129,0.08); border-color: rgba(110,118,129,0.2); }
+.layer-cell.U .layer-st { color: var(--status-offline); }
+
+@keyframes value-update {
+  0% { box-shadow: inset 0 0 0 2px rgba(88,166,255,0.5); }
+  100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+.layer-cell.flash { animation: value-update 800ms ease-out; }
+
+.layer-stats { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; }
+.layer-stats .stat { display: flex; align-items: center; gap: 4px; }
+.layer-stats .dot { width: 8px; height: 8px; border-radius: 2px; }
+.layer-stats .dot.N { background: var(--status-ok); }
+.layer-stats .dot.T { background: var(--status-warning); }
+.layer-stats .dot.H { background: var(--status-critical); }
+.layer-stats .dot.U { background: var(--status-offline); }
+
+/* Tabs */
+.tabs { display: flex; border-bottom: 1px solid var(--border-default); }
+.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--text-secondary); border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text-primary); }
+.tab.active { color: var(--status-info); border-bottom-color: var(--status-info); }
+
+/* Forms */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.form-group { display: flex; flex-direction: column; gap: 2px; }
+.form-group label { font-size: 11px; color: var(--text-muted); }
+.form-group input, .form-group select {
+  background: var(--bg-primary); border: 1px solid var(--border-default);
+  color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; padding: 5px 8px; border-radius: 3px; outline: none;
+}
+.form-group input:focus, .form-group select:focus { border-color: var(--status-info); }
+.btn { padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 100ms; font-family: 'IBM Plex Sans', sans-serif; }
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--status-info); color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.form-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.form-msg { font-size: 12px; color: var(--status-ok); }
+
+/* Log */
+.log-filters { display: flex; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border-default); flex-wrap: wrap; }
+.log-filter { padding: 2px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border-default); background: transparent; color: var(--text-secondary); }
+.log-filter.active { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--status-info); }
+.log-list { max-height: 200px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; }
+.log-entry { padding: 2px 12px; border-bottom: 1px solid rgba(48,54,61,0.3); display: flex; gap: 8px; }
+.log-entry:hover { background: var(--bg-tertiary); }
+.log-time { color: var(--text-muted); flex-shrink: 0; }
+.log-dir { font-weight: 600; flex-shrink: 0; width: 22px; }
+.log-dir.TX { color: var(--status-info); }
+.log-dir.RX { color: var(--status-ok); }
+.log-tc { color: var(--status-warning); flex-shrink: 0; width: 48px; }
+.log-detail { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Line status */
+.line-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: 500; }
+.line-badge.ok { background: rgba(63,185,80,0.12); color: var(--status-ok); border: 1px solid rgba(63,185,80,0.2); }
+.line-badge.ng { background: rgba(248,81,73,0.12); color: var(--status-critical); border: 1px solid rgba(248,81,73,0.2); }
+
+/* Empty state */
+.empty { text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; }
+
+/* WS status */
+.ws-badge { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+.ws-badge.connected { background: rgba(63,185,80,0.15); color: var(--status-ok); }
+.ws-badge.disconnected { background: rgba(110,118,129,0.15); color: var(--status-offline); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+const API_BASE = 'http://localhost:8080';
+const WS_URL = 'ws://localhost:8080/ws';
+
+// =========================================
+// WebSocket Hook
+// =========================================
+function useWebSocket(url) {
+  const [wsState, setWsState] = useState('disconnected');
+  const wsRef = useRef(null);
+  const handlersRef = useRef({});
+  const reconnectTimer = useRef(null);
+
+  const connect = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState <= 1) return;
+    setWsState('connecting');
+    try {
+      const ws = new WebSocket(url);
+      ws.onopen = () => { setWsState('connected'); };
+      ws.onclose = () => {
+        setWsState('disconnected');
+        wsRef.current = null;
+        reconnectTimer.current = setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {};
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          const handler = handlersRef.current[msg.type];
+          if (handler) handler(msg.data);
+        } catch(err) {}
+      };
+      wsRef.current = ws;
+    } catch(e) {
+      setTimeout(connect, 3000);
+    }
+  }, [url]);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [connect]);
+
+  const on = useCallback((type, handler) => {
+    handlersRef.current[type] = handler;
+  }, []);
+
+  return { wsState, on };
+}
+
+// =========================================
+// API Hook
+// =========================================
+function useApi() {
+  const post = useCallback(async (path, body) => {
+    try {
+      const res = await fetch(API_BASE + path, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      });
+      return await res.json();
+    } catch(e) { return { success: false, error: e.message }; }
+  }, []);
+  const get = useCallback(async (path) => {
+    try {
+      const res = await fetch(API_BASE + path);
+      return await res.json();
+    } catch(e) { return null; }
+  }, []);
+  return { post, get };
+}
+
+// =========================================
+// StatusDot Component
+// =========================================
+function StatusDot({ color }) {
+  return <span className={`led ${color}`} />;
+}
+
+// =========================================
+// Header Component
+// =========================================
+function Header({ tcpState, wsState, aliveData, lastRx }) {
+  const tcpColor = tcpState === 'alive_ok' ? 'green' : tcpState === 'connected' ? 'yellow' : tcpState === 'alive_timeout' ? 'red' : 'gray';
+  const tcpLabel = { disconnected:'Disconnected', connected:'Connected', alive_ok:'Alive OK', alive_timeout:'Alive Timeout' }[tcpState] || 'Unknown';
+
+  return (
+    <div className="header">
+      <div style={{fontWeight:700,fontSize:14,letterSpacing:'0.5px'}} className="condensed">LV2 MONITOR</div>
+      <div className="sep"/>
+      <div className="status-group"><StatusDot color={tcpColor}/> <span>TCP: {tcpLabel}</span></div>
+      <div className="sep"/>
+      <div className="status-group"><span className="mono" style={{fontSize:12}}>Alive TX:{String(aliveData.tx||0).padStart(4,'0')} RX:{String(aliveData.rx||0).padStart(4,'0')}</span></div>
+      <div className="sep"/>
+      <div className="status-group"><span style={{color:'var(--text-muted)',fontSize:12}}>Last RX: </span><span className="mono" style={{fontSize:12}}>{lastRx || '--:--:--'}</span></div>
+      <div className="sep"/>
+      <div className="status-group">
+        A: <span className={`line-badge ${aliveData.workA==='01'?'ok':'ng'}`}>{aliveData.workA==='01'?'정상':'비정상'}</span>
+        B: <span className={`line-badge ${aliveData.workB==='01'?'ok':'ng'}`}>{aliveData.workB==='01'?'정상':'비정상'}</span>
+      </div>
+      <div style={{flex:1}}/>
+      <span className={`ws-badge ${wsState==='connected'?'connected':'disconnected'}`}>WS: {wsState}</span>
+    </div>
+  );
+}
+
+// =========================================
+// LayerGrid Component (Core Widget)
+// =========================================
+function LayerGrid({ layers, layerCount }) {
+  const [flashIdx, setFlashIdx] = useState(new Set());
+  const prevLayers = useRef(layers);
+
+  useEffect(() => {
+    const changed = new Set();
+    if (prevLayers.current) {
+      for (let i = 0; i < 25; i++) {
+        if (layers[i] !== prevLayers.current[i]) changed.add(i);
+      }
+    }
+    if (changed.size > 0) {
+      setFlashIdx(changed);
+      const t = setTimeout(() => setFlashIdx(new Set()), 800);
+      prevLayers.current = [...layers];
+      return () => clearTimeout(t);
+    }
+    prevLayers.current = [...layers];
+  }, [layers]);
+
+  const stats = useMemo(() => {
+    const s = {N:0,T:0,H:0,U:0};
+    layers.forEach(l => { if(s[l]!==undefined) s[l]++; });
+    return s;
+  }, [layers]);
+
+  const STATUS_LABELS = {N:'Normal',T:'Twist',H:'Hooking',U:'Unmeasured'};
+
+  return (
+    <div>
+      <div className="layer-grid">
+        {layers.map((st, i) => (
+          <div key={i} className={`layer-cell ${st} ${flashIdx.has(i)?'flash':''}`} title={STATUS_LABELS[st]}>
+            <span className="layer-idx">L{String(i+1).padStart(2,'0')}</span>
+            <span className="layer-st">{st}</span>
+          </div>
+        ))}
+      </div>
+      <div className="layer-stats">
+        {['N','T','H','U'].map(s => (
+          <div className="stat" key={s}><span className={`dot ${s}`}/><span className="mono">{s}:{stats[s]}</span></div>
+        ))}
+        <div className="stat" style={{marginLeft:'auto',color:'var(--text-muted)'}}>
+          Layer: <span className="mono">{layerCount}/25</span>
+          {stats.T+stats.H > 0 && <span style={{marginLeft:8,color:'var(--status-warning)'}}>이상: {((stats.T+stats.H)/25*100).toFixed(1)}%</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =========================================
+// CoilInfo Component
+// =========================================
+function CoilInfo({ material }) {
+  if (!material) return <div className="empty">소재정보 대기중</div>;
+  const fields = [
+    ['번들번호', material.bundle_no],
+    ['강편번호', material.mtrl_no],
+    ['Line', material.line_no],
+    ['강종', material.mat_grade],
+    ['제품명', material.dims_name],
+    ['HEAT', material.heat_no],
+    ['규격약호', material.spec_cd],
+  ];
+  return (
+    <div>
+      {fields.map(([label, val]) => (
+        <div className="field" key={label}>
+          <div className="field-label">{label}</div>
+          <div className={`field-value mono ${label==='번들번호'?'large':''}`}>{val || '-'}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =========================================
+// Control Panels
+// =========================================
+function SetupPanel({ api, connected }) {
+  const [form, setForm] = useState({dims_name:'BL1600',spec_cd:'KS SD600',mat_grade:'C600CZ',qtb_speed:'01513',spl_a_speed:'01588',spl_b_speed:'01588'});
+  const [msg, setMsg] = useState('');
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const send = async () => {
+    const r = await api.post('/api/setup', form);
+    setMsg(r.success ? 'TC 1001 전송 완료' : '전송 실패');
+    setTimeout(()=>setMsg(''),3000);
+  };
+  return (
+    <div className="card-body">
+      <div className="form-grid">
+        <div className="form-group"><label>제품명 (6)</label><input value={form.dims_name} onChange={e=>set('dims_name',e.target.value)} maxLength={6}/></div>
+        <div className="form-group"><label>규격약호 (40)</label><input value={form.spec_cd} onChange={e=>set('spec_cd',e.target.value)} maxLength={40}/></div>
+        <div className="form-group"><label>강종 (7)</label><input value={form.mat_grade} onChange={e=>set('mat_grade',e.target.value)} maxLength={7}/></div>
+        <div className="form-group"><label>QTB 선속</label><input value={form.qtb_speed} onChange={e=>set('qtb_speed',e.target.value)} maxLength={5}/></div>
+        <div className="form-group"><label>SPL A 선속</label><input value={form.spl_a_speed} onChange={e=>set('spl_a_speed',e.target.value)} maxLength={5}/></div>
+        <div className="form-group"><label>SPL B 선속</label><input value={form.spl_b_speed} onChange={e=>set('spl_b_speed',e.target.value)} maxLength={5}/></div>
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-primary" onClick={send} disabled={!connected}>1001 전송</button>
+        {msg && <span className="form-msg">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MaterialPanel({ api, connected }) {
+  const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',heat_no:'S78588',spec_cd:'KS SD600',mat_grade:'C600CZ',dims_name:'BL1600',line_no:'A',qtb_speed:'01513',spl_a_speed:'01588',spl_b_speed:'01588',qtb_temp:'0400'});
+  const [msg, setMsg] = useState('');
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const send = async () => {
+    const r = await api.post('/api/material', form);
+    setMsg(r.success ? 'TC 1002 전송 완료' : '전송 실패');
+    setTimeout(()=>setMsg(''),3000);
+  };
+  return (
+    <div className="card-body">
+      <div className="form-grid">
+        <div className="form-group"><label>번들번호 (10)</label><input value={form.bundle_no} onChange={e=>set('bundle_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>강편번호 (10)</label><input value={form.mtrl_no} onChange={e=>set('mtrl_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>HEAT번호 (6)</label><input value={form.heat_no} onChange={e=>set('heat_no',e.target.value)} maxLength={6}/></div>
+        <div className="form-group"><label>규격약호 (40)</label><input value={form.spec_cd} onChange={e=>set('spec_cd',e.target.value)} maxLength={40}/></div>
+        <div className="form-group"><label>강종 (7)</label><input value={form.mat_grade} onChange={e=>set('mat_grade',e.target.value)} maxLength={7}/></div>
+        <div className="form-group"><label>제품명 (6)</label><input value={form.dims_name} onChange={e=>set('dims_name',e.target.value)} maxLength={6}/></div>
+        <div className="form-group"><label>작업 Line</label>
+          <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
+        </div>
+        <div className="form-group"><label>QTB 선속</label><input value={form.qtb_speed} onChange={e=>set('qtb_speed',e.target.value)} maxLength={5}/></div>
+        <div className="form-group"><label>SPL A 선속</label><input value={form.spl_a_speed} onChange={e=>set('spl_a_speed',e.target.value)} maxLength={5}/></div>
+        <div className="form-group"><label>SPL B 선속</label><input value={form.spl_b_speed} onChange={e=>set('spl_b_speed',e.target.value)} maxLength={5}/></div>
+        <div className="form-group"><label>QTB 복열온도</label><input value={form.qtb_temp} onChange={e=>set('qtb_temp',e.target.value)} maxLength={4}/></div>
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-primary" onClick={send} disabled={!connected}>1002 전송</button>
+        {msg && <span className="form-msg">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ResultChangePanel({ api, connected }) {
+  const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',line_no:'A'});
+  const [fns, setFns] = useState(Array(10).fill(''));
+  const [msg, setMsg] = useState('');
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const setFn = (i,v) => { const a=[...fns]; a[i]=v; setFns(a); };
+  const send = async () => {
+    const r = await api.post('/api/result-change', {...form, filenames: fns});
+    setMsg(r.success ? 'TC 1010 전송 완료' : '전송 실패');
+    setTimeout(()=>setMsg(''),3000);
+  };
+  return (
+    <div className="card-body">
+      <div className="form-grid">
+        <div className="form-group"><label>번들번호</label><input value={form.bundle_no} onChange={e=>set('bundle_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>강편번호</label><input value={form.mtrl_no} onChange={e=>set('mtrl_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>작업 Line</label>
+          <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
+        </div>
+      </div>
+      <div style={{marginTop:8,fontSize:11,color:'var(--text-muted)'}}>변경 이미지 파일명 (각 50자 이내)</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4,marginTop:4}}>
+        {fns.map((fn,i) => (
+          <div className="form-group" key={i}><label>파일 {i+1}</label><input value={fn} onChange={e=>setFn(i,e.target.value)} maxLength={50} placeholder="예: 20251230_C300ZZ_..._N.jpg"/></div>
+        ))}
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-primary" onClick={send} disabled={!connected}>1010 전송</button>
+        {msg && <span className="form-msg">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+// =========================================
+// LogPanel Component
+// =========================================
+function LogPanel({ logs }) {
+  const [dirFilter, setDirFilter] = useState('ALL');
+  const [tcFilter, setTcFilter] = useState('ALL');
+
+  const filtered = useMemo(() => {
+    let fl = logs;
+    if (dirFilter !== 'ALL') fl = fl.filter(l => l.direction === dirFilter);
+    if (tcFilter !== 'ALL') fl = fl.filter(l => l.tc === tcFilter);
+    return fl;
+  }, [logs, dirFilter, tcFilter]);
+
+  const formatDetail = (log) => {
+    const p = log.parsed || {};
+    if (log.tc === '1101') return `${p.bundle_no||''} L=${p.layer_count||''}`;
+    if (log.tc === '1099') return `cnt=${p.count||''}`;
+    if (log.tc === '1199') return `cnt=${p.count||''} A=${p.work_a||''} B=${p.work_b||''}`;
+    if (log.tc === '1002') return `${p.bundle_no||''} ${p.dims_name||''} ${p.line_no||''}`;
+    if (log.tc === '1001') return `${p.dims_name||''} ${p.mat_grade||''}`;
+    if (log.tc === '1010') return `${p.bundle_no||''} ${p.line_no||''}`;
+    return `${log.raw?.length||0}B`;
+  };
+
+  return (
+    <div>
+      <div className="log-filters">
+        {['ALL','TX','RX'].map(d => (
+          <button key={d} className={`log-filter ${dirFilter===d?'active':''}`} onClick={()=>setDirFilter(d)}>{d}</button>
+        ))}
+        <span style={{width:1,height:16,background:'var(--border-default)',margin:'0 4px'}}/>
+        {['ALL','1001','1002','1010','1099','1101','1199'].map(tc => (
+          <button key={tc} className={`log-filter ${tcFilter===tc?'active':''}`} onClick={()=>setTcFilter(tc)}>{tc}</button>
+        ))}
+      </div>
+      <div className="log-list">
+        {filtered.length === 0 && <div className="empty" style={{padding:12}}>로그 없음</div>}
+        {filtered.map((log, i) => (
+          <div className="log-entry" key={i}>
+            <span className="log-time">{(log.timestamp||'').split(' ').pop()||''}</span>
+            <span className={`log-dir ${log.direction}`}>{log.direction}</span>
+            <span className="log-tc">TC={log.tc}</span>
+            <span className="log-detail">{formatDetail(log)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =========================================
+// Main App
+// =========================================
+function App() {
+  const { wsState, on } = useWebSocket(WS_URL);
+  const api = useApi();
+  const [page, setPage] = useState('dashboard');
+  const [tcpState, setTcpState] = useState('disconnected');
+  const [aliveData, setAliveData] = useState({tx:0,rx:0,workA:'',workB:''});
+  const [lastRx, setLastRx] = useState('');
+  const [layers, setLayers] = useState(Array(25).fill('U'));
+  const [layerCount, setLayerCount] = useState(0);
+  const [material, setMaterial] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [ctrlTab, setCtrlTab] = useState('setup');
+
+  const tcpConnected = tcpState !== 'disconnected';
+
+  useEffect(() => {
+    on('init_state', (data) => {
+      if (data.status) {
+        setTcpState(data.status.connection_state || 'disconnected');
+        setAliveData({
+          tx: data.status.alive_count_tx || 0,
+          rx: data.status.alive_count_rx || 0,
+          workA: data.status.work_a || '',
+          workB: data.status.work_b || '',
+        });
+        setLastRx(data.status.last_alive_rx_time || '');
+      }
+      if (data.coils && data.coils.length > 0) {
+        const c = data.coils[data.coils.length - 1];
+        if (c.layers && c.layers.length > 0) {
+          setLayers(c.layers.map(l => l.status));
+          setLayerCount(c.layer_count);
+        }
+      }
+      if (data.logs) setLogs(data.logs);
+    });
+    on('connection_changed', (data) => {
+      setTcpState(data.state);
+    });
+    on('alive_received', (data) => {
+      setAliveData(d => ({...d, rx: data.count, workA: data.work_a, workB: data.work_b}));
+      setLastRx(data.timestamp);
+    });
+    on('winding_status', (data) => {
+      if (data.layers) setLayers(data.layers.map(l => l.status));
+      setLayerCount(data.layer_count || 0);
+      if (!material || material.bundle_no !== data.bundle_no) {
+        setMaterial(m => ({...(m||{}), bundle_no: data.bundle_no, mtrl_no: data.mtrl_no, line_no: data.line_no}));
+      }
+    });
+    on('packet_log', (data) => {
+      setLogs(prev => [{...data}, ...prev].slice(0, 500));
+      if (data.tc === '1099') setAliveData(d => ({...d, tx: data.parsed?.count || d.tx}));
+      if (data.tc === '1002' && data.direction === 'TX') {
+        setMaterial(data.parsed);
+      }
+    });
+  }, [on]);
+
+  return (
+    <div className="app">
+      <Header tcpState={tcpState} wsState={wsState} aliveData={aliveData} lastRx={lastRx} />
+
+      <div className="sidebar">
+        <div className="nav-label">메뉴</div>
+        <div className={`nav-item ${page==='dashboard'?'active':''}`} onClick={()=>setPage('dashboard')}>대시보드</div>
+        <div className={`nav-item ${page==='control'?'active':''}`} onClick={()=>setPage('control')}>조작 패널</div>
+        <div className={`nav-item ${page==='logs'?'active':''}`} onClick={()=>setPage('logs')}>전문 로그</div>
+      </div>
+
+      <div className="main">
+        {page === 'dashboard' && (
+          <>
+            <div className="grid-row grid-top">
+              <div className="card">
+                <div className="card-header">코일 정보</div>
+                <div className="card-body"><CoilInfo material={material} /></div>
+              </div>
+              <div className="card">
+                <div className="card-header">25-Layer 권취상태</div>
+                <div className="card-body"><LayerGrid layers={layers} layerCount={layerCount} /></div>
+              </div>
+            </div>
+            <div className="card">
+              <div className="card-header">조작 패널</div>
+              <div className="tabs">
+                <div className={`tab ${ctrlTab==='setup'?'active':''}`} onClick={()=>setCtrlTab('setup')}>생산정보 (1001)</div>
+                <div className={`tab ${ctrlTab==='material'?'active':''}`} onClick={()=>setCtrlTab('material')}>소재정보 (1002)</div>
+                <div className={`tab ${ctrlTab==='result'?'active':''}`} onClick={()=>setCtrlTab('result')}>판정변경 (1010)</div>
+              </div>
+              {ctrlTab==='setup' && <SetupPanel api={api} connected={tcpConnected}/>}
+              {ctrlTab==='material' && <MaterialPanel api={api} connected={tcpConnected}/>}
+              {ctrlTab==='result' && <ResultChangePanel api={api} connected={tcpConnected}/>}
+            </div>
+            <div className="card" style={{flex:1,minHeight:0,display:'flex',flexDirection:'column'}}>
+              <div className="card-header">전문 로그</div>
+              <div style={{flex:1,minHeight:0,overflow:'hidden'}}><LogPanel logs={logs}/></div>
+            </div>
+          </>
+        )}
+
+        {page === 'control' && (
+          <>
+            <div className="card">
+              <div className="card-header">생산정보 전송 (TC 1001)</div>
+              <SetupPanel api={api} connected={tcpConnected}/>
+            </div>
+            <div className="card">
+              <div className="card-header">소재정보 전송 (TC 1002)</div>
+              <MaterialPanel api={api} connected={tcpConnected}/>
+            </div>
+            <div className="card">
+              <div className="card-header">판정결과 변경 (TC 1010)</div>
+              <ResultChangePanel api={api} connected={tcpConnected}/>
+            </div>
+          </>
+        )}
+
+        {page === 'logs' && (
+          <div className="card" style={{flex:1,minHeight:0,display:'flex',flexDirection:'column'}}>
+            <div className="card-header">전문 송수신 로그</div>
+            <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
+              <LogPanel logs={logs}/>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
