@@ -335,11 +335,11 @@ function LayerGrid({ layers, layerCount }) {
 // =========================================
 // ReceivedInfo Component (L2에서 수신한 정보)
 // =========================================
-function ReceivedInfo({ setup, material }) {
+function ReceivedInfo({ setup, material, resultChange }) {
   return (
     <div>
       <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:6,fontWeight:600}}>L2 수신 데이터</div>
-      {!setup && !material && <div className="empty" style={{padding:12}}>L2 데이터 대기중...</div>}
+      {!setup && !material && !resultChange && <div className="empty" style={{padding:12}}>L2 데이터 대기중...</div>}
       {setup && (
         <div style={{marginBottom:8}}>
           <div style={{fontSize:11,color:'var(--status-info)',marginBottom:4}}>생산정보 (1001)</div>
@@ -352,7 +352,7 @@ function ReceivedInfo({ setup, material }) {
         </div>
       )}
       {material && (
-        <div>
+        <div style={{marginBottom:8}}>
           <div style={{fontSize:11,color:'var(--status-info)',marginBottom:4}}>소재정보 (1002)</div>
           <div className="rx-info">
             <div className="rx-item"><span className="rx-label">번들</span><span className="rx-val">{material.bundle_no||'-'}</span></div>
@@ -362,6 +362,25 @@ function ReceivedInfo({ setup, material }) {
             <div className="rx-item"><span className="rx-label">HEAT</span><span className="rx-val">{material.heat_no||'-'}</span></div>
             <div className="rx-item"><span className="rx-label">제품명</span><span className="rx-val">{material.dims_name||'-'}</span></div>
           </div>
+        </div>
+      )}
+      {resultChange && (
+        <div>
+          <div style={{fontSize:11,color:'var(--status-warning)',marginBottom:4}}>판정변경 (1010)</div>
+          <div className="rx-info">
+            <div className="rx-item"><span className="rx-label">번들</span><span className="rx-val">{resultChange.bundle_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">강편</span><span className="rx-val">{resultChange.mtrl_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">Line</span><span className="rx-val">{resultChange.line_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">일시</span><span className="rx-val">{resultChange.date||'-'}</span></div>
+          </div>
+          {resultChange.filenames && resultChange.filenames.filter(f=>f.trim()).length > 0 && (
+            <div style={{marginTop:4}}>
+              <div style={{fontSize:10,color:'var(--text-muted)',marginBottom:2}}>파일명</div>
+              {resultChange.filenames.filter(f=>f.trim()).map((fn,i) => (
+                <div key={i} className="mono" style={{fontSize:11,color:'var(--text-secondary)',padding:'1px 0'}}>{fn}</div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -565,6 +584,7 @@ function App() {
   const [layerCount, setLayerCount] = useState(0);
   const [setup, setSetup] = useState(null);
   const [material, setMaterial] = useState(null);
+  const [resultChange, setResultChange] = useState(null);
   const [autoWindingActive, setAutoWindingActive] = useState(false);
   const [logs, setLogs] = useState([]);
 
@@ -584,6 +604,7 @@ function App() {
       }
       if (data.setup) setSetup(data.setup);
       if (data.material) setMaterial(data.material);
+      if (data.result_change) setResultChange(data.result_change);
       if (data.auto_winding_active !== undefined) setAutoWindingActive(data.auto_winding_active);
       if (data.coils && data.coils.length > 0) {
         const c = data.coils[data.coils.length - 1];
@@ -606,6 +627,9 @@ function App() {
     });
     on('material_received', (data) => {
       setMaterial(data);
+    });
+    on('result_change_received', (data) => {
+      setResultChange(data);
     });
     on('winding_status', (data) => {
       if (data.layers) setLayers(data.layers.map(l => l.status));
@@ -640,7 +664,7 @@ function App() {
             <div className="grid-row grid-top">
               <div className="card">
                 <div className="card-header">L2 수신 정보</div>
-                <div className="card-body"><ReceivedInfo setup={setup} material={material} /></div>
+                <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} /></div>
               </div>
               <div className="card">
                 <div className="card-header">
@@ -680,7 +704,7 @@ function App() {
             </div>
             <div className="card">
               <div className="card-header">L2 수신 정보</div>
-              <div className="card-body"><ReceivedInfo setup={setup} material={material} /></div>
+              <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} /></div>
             </div>
           </>
         )}

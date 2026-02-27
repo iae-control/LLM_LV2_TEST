@@ -162,6 +162,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 "mat_grade": m.mat_grade, "dims_name": m.dims_name,
                 "line_no": m.line_no,
             }
+        result_change_data = None
+        if _data_store.current_result_change:
+            rc = _data_store.current_result_change
+            result_change_data = {
+                "bundle_no": rc.bundle_no, "mtrl_no": rc.mtrl_no,
+                "line_no": rc.line_no, "date": rc.date,
+                "filenames": rc.filenames,
+            }
 
         await _ws_manager.send_personal(websocket, "init_state", {
             "status": _data_store.get_status(),
@@ -169,6 +177,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "logs": _data_store.get_logs(limit=50),
             "setup": setup_data,
             "material": material_data,
+            "result_change": result_change_data,
             "auto_winding_active": _tcp_client.auto_winding_active,
         })
     except Exception:
