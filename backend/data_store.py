@@ -1,4 +1,4 @@
-"""인메모리 데이터 저장소"""
+"""인메모리 데이터 저장소 — SPL 관점"""
 
 from collections import deque
 from dataclasses import dataclass, field
@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any
 
-from backend.protocol import TC1001_Setup, TC1002_Material
+from backend.protocol import TC1001_Setup, TC1002_Material, TC1010_ResultChange
 
 
 class ConnectionState(str, Enum):
@@ -57,16 +57,31 @@ class CoilData:
 
 class DataStore:
     def __init__(self):
+        # L2에서 수신한 데이터
         self.current_setup: Optional[TC1001_Setup] = None
         self.current_material: Optional[TC1002_Material] = None
+        self.current_result_change: Optional[TC1010_ResultChange] = None
+
+        # 우리(SPL)가 보내는 권취 데이터
         self.coils: Dict[str, CoilData] = {}
+
+        # L2 접속 상태
         self.connection_state: ConnectionState = ConnectionState.DISCONNECTED
-        self.alive_count_tx: int = 0
-        self.alive_count_rx: int = 0
+        self.l2_connected_since: Optional[str] = None
+
+        # Alive 카운터
+        self.alive_count_tx: int = 0   # 우리 1199 발신 횟수
+        self.alive_count_rx: int = 0   # L2 1099 수신 횟수
         self.last_alive_rx_time: Optional[str] = None
-        self.work_a: str = ""
-        self.work_b: str = ""
-        self.spl_connected_since: Optional[str] = None
+
+        # 우리(SPL) 라인 가동상태 (1199에 포함)
+        self.work_a: str = "01"
+        self.work_b: str = "01"
+
+        # 자동 권취 제어
+        self.auto_winding_enabled: bool = True
+
+        # 로그
         self.alive_history: deque = deque(maxlen=100)
         self.packet_logs: deque = deque(maxlen=1000)
 
@@ -81,17 +96,42 @@ class DataStore:
         self.packet_logs.appendleft(log)
         return log
 
+    def update_coil_from_material(self, material: TC1002_Material):
+        """소재정보(1002) 수신 시 코일 데이터 생성/갱신"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        bn = material.bundle_no.strip()
+        if not bn:
+            return
+        if bn not in self.coils:
+            self.coils[bn] = CoilData(bundle_no=bn, created_at=now)
+        coil = self.coils[bn]
+        coil.mtrl_no = material.mtrl_no
+        coil.line_no = material.line_no
+        coil.material_info = {
+            "bundle_no": material.bundle_no,
+            "mtrl_no": material.mtrl_no,
+            "heat_no": material.heat_no,
+            "spec_cd": material.spec_cd,
+            "mat_grade": material.mat_grade,
+            "dims_name": material.dims_name,
+            "line_no": material.line_no,
+        }
+        coil.updated_at = now
+
     def update_winding(self, bundle_no: str, mtrl_no: str, line_no: str,
                        layer_count: int, layers: list):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if bundle_no not in self.coils:
-            self.coils[bundle_no] = CoilData(
-                bundle_no=bundle_no,
+        bn = bundle_no.strip()
+        if not bn:
+            bn = bundle_no
+        if bn not in self.coils:
+            self.coils[bn] = CoilData(
+                bundle_no=bn,
                 mtrl_no=mtrl_no,
                 line_no=line_no,
                 created_at=now,
             )
-        coil = self.coils[bundle_no]
+        coil = self.coils[bn]
         coil.mtrl_no = mtrl_no
         coil.line_no = line_no
         coil.layer_count = layer_count
@@ -109,7 +149,8 @@ class DataStore:
             "last_alive_rx_time": self.last_alive_rx_time,
             "work_a": self.work_a,
             "work_b": self.work_b,
-            "spl_connected_since": self.spl_connected_since,
+            "l2_connected_since": self.l2_connected_since,
+            "auto_winding_enabled": self.auto_winding_enabled,
         }
 
     def get_coils(self) -> list:

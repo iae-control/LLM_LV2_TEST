@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LV2 Winding Status Monitor</title>
+<title>SPL Winding Status Monitor</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -58,7 +58,7 @@ body {
 
 /* Cards */
 .card { background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 4px; }
-.card-header { padding: 8px 12px; border-bottom: 1px solid var(--border-default); font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.card-header { padding: 8px 12px; border-bottom: 1px solid var(--border-default); font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; }
 .card-body { padding: 12px; }
 
 /* Grid layout */
@@ -121,6 +121,8 @@ body {
 .btn:hover { opacity: 0.85; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-primary { background: var(--status-info); color: #fff; }
+.btn-danger { background: var(--status-critical); color: #fff; }
+.btn-success { background: var(--status-ok); color: #fff; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .form-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .form-msg { font-size: 12px; color: var(--status-ok); }
@@ -143,6 +145,18 @@ body {
 .line-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: 500; }
 .line-badge.ok { background: rgba(63,185,80,0.12); color: var(--status-ok); border: 1px solid rgba(63,185,80,0.2); }
 .line-badge.ng { background: rgba(248,81,73,0.12); color: var(--status-critical); border: 1px solid rgba(248,81,73,0.2); }
+
+/* Received info */
+.rx-info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px; }
+.rx-info .rx-item { display: flex; gap: 6px; padding: 2px 0; }
+.rx-info .rx-label { color: var(--text-muted); min-width: 60px; }
+.rx-info .rx-val { color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+
+/* Toggle */
+.toggle { position: relative; width: 36px; height: 20px; border-radius: 10px; background: var(--border-default); cursor: pointer; transition: background 200ms; }
+.toggle.on { background: var(--status-ok); }
+.toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 200ms; }
+.toggle.on::after { transform: translateX(16px); }
 
 /* Empty state */
 .empty { text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; }
@@ -222,7 +236,7 @@ function useApi() {
   const post = useCallback(async (path, body) => {
     try {
       const res = await fetch(API_BASE + path, {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body || {})
       });
       return await res.json();
     } catch(e) { return { success: false, error: e.message }; }
@@ -237,28 +251,21 @@ function useApi() {
 }
 
 // =========================================
-// StatusDot Component
-// =========================================
-function StatusDot({ color }) {
-  return <span className={`led ${color}`} />;
-}
-
-// =========================================
 // Header Component
 // =========================================
 function Header({ tcpState, wsState, aliveData, lastRx }) {
   const tcpColor = tcpState === 'alive_ok' ? 'green' : tcpState === 'connected' ? 'yellow' : tcpState === 'alive_timeout' ? 'red' : 'gray';
-  const tcpLabel = { disconnected:'Disconnected', connected:'Connected', alive_ok:'Alive OK', alive_timeout:'Alive Timeout' }[tcpState] || 'Unknown';
+  const tcpLabel = { disconnected:'L2 미접속', connected:'L2 접속', alive_ok:'Alive 정상', alive_timeout:'Alive 타임아웃' }[tcpState] || 'Unknown';
 
   return (
     <div className="header">
-      <div style={{fontWeight:700,fontSize:14,letterSpacing:'0.5px'}} className="condensed">LV2 MONITOR</div>
+      <div style={{fontWeight:700,fontSize:14,letterSpacing:'0.5px'}} className="condensed">SPL MONITOR</div>
       <div className="sep"/>
-      <div className="status-group"><StatusDot color={tcpColor}/> <span>TCP: {tcpLabel}</span></div>
+      <div className="status-group"><span className={`led ${tcpColor}`}/> <span>{tcpLabel}</span></div>
       <div className="sep"/>
-      <div className="status-group"><span className="mono" style={{fontSize:12}}>Alive TX:{String(aliveData.tx||0).padStart(4,'0')} RX:{String(aliveData.rx||0).padStart(4,'0')}</span></div>
+      <div className="status-group"><span className="mono" style={{fontSize:12}}>TX(1199):{String(aliveData.tx||0).padStart(4,'0')} RX(1099):{String(aliveData.rx||0).padStart(4,'0')}</span></div>
       <div className="sep"/>
-      <div className="status-group"><span style={{color:'var(--text-muted)',fontSize:12}}>Last RX: </span><span className="mono" style={{fontSize:12}}>{lastRx || '--:--:--'}</span></div>
+      <div className="status-group"><span style={{color:'var(--text-muted)',fontSize:12}}>Last L2 Alive: </span><span className="mono" style={{fontSize:12}}>{lastRx || '--:--:--'}</span></div>
       <div className="sep"/>
       <div className="status-group">
         A: <span className={`line-badge ${aliveData.workA==='01'?'ok':'ng'}`}>{aliveData.workA==='01'?'정상':'비정상'}</span>
@@ -325,124 +332,104 @@ function LayerGrid({ layers, layerCount }) {
 }
 
 // =========================================
-// CoilInfo Component
+// ReceivedInfo Component (L2에서 수신한 정보)
 // =========================================
-function CoilInfo({ material }) {
-  if (!material) return <div className="empty">소재정보 대기중</div>;
-  const fields = [
-    ['번들번호', material.bundle_no],
-    ['강편번호', material.mtrl_no],
-    ['Line', material.line_no],
-    ['강종', material.mat_grade],
-    ['제품명', material.dims_name],
-    ['HEAT', material.heat_no],
-    ['규격약호', material.spec_cd],
-  ];
+function ReceivedInfo({ setup, material }) {
   return (
     <div>
-      {fields.map(([label, val]) => (
-        <div className="field" key={label}>
-          <div className="field-label">{label}</div>
-          <div className={`field-value mono ${label==='번들번호'?'large':''}`}>{val || '-'}</div>
+      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:6,fontWeight:600}}>L2 수신 데이터</div>
+      {!setup && !material && <div className="empty" style={{padding:12}}>L2 데이터 대기중...</div>}
+      {setup && (
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:11,color:'var(--status-info)',marginBottom:4}}>생산정보 (1001)</div>
+          <div className="rx-info">
+            <div className="rx-item"><span className="rx-label">제품명</span><span className="rx-val">{setup.dims_name||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">강종</span><span className="rx-val">{setup.mat_grade||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">QTB</span><span className="rx-val">{setup.qtb_speed||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">SPL-A</span><span className="rx-val">{setup.spl_a_speed||'-'}</span></div>
+          </div>
         </div>
-      ))}
+      )}
+      {material && (
+        <div>
+          <div style={{fontSize:11,color:'var(--status-info)',marginBottom:4}}>소재정보 (1002)</div>
+          <div className="rx-info">
+            <div className="rx-item"><span className="rx-label">번들</span><span className="rx-val">{material.bundle_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">강편</span><span className="rx-val">{material.mtrl_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">Line</span><span className="rx-val">{material.line_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">강종</span><span className="rx-val">{material.mat_grade||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">HEAT</span><span className="rx-val">{material.heat_no||'-'}</span></div>
+            <div className="rx-item"><span className="rx-label">제품명</span><span className="rx-val">{material.dims_name||'-'}</span></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // =========================================
-// Control Panels
+// WindingControl Component
 // =========================================
-function SetupPanel({ api, connected }) {
-  const [form, setForm] = useState({dims_name:'BL1600',spec_cd:'KS SD600',mat_grade:'C600CZ',qtb_speed:'01513',spl_a_speed:'01588',spl_b_speed:'01588'});
+function WindingControl({ api, connected, autoWindingActive, autoWindingEnabled }) {
   const [msg, setMsg] = useState('');
-  const set = (k,v) => setForm(f=>({...f,[k]:v}));
-  const send = async () => {
-    const r = await api.post('/api/setup', form);
-    setMsg(r.success ? 'TC 1001 전송 완료' : '전송 실패');
+
+  const toggleAutoWinding = async () => {
+    const r = autoWindingActive
+      ? await api.post('/api/stop-auto-winding')
+      : await api.post('/api/start-auto-winding');
+    setMsg(r.success !== false ? (autoWindingActive ? '자동 권취 중지' : '자동 권취 시작') : '실패');
     setTimeout(()=>setMsg(''),3000);
   };
+
   return (
     <div className="card-body">
-      <div className="form-grid">
-        <div className="form-group"><label>제품명 (6)</label><input value={form.dims_name} onChange={e=>set('dims_name',e.target.value)} maxLength={6}/></div>
-        <div className="form-group"><label>규격약호 (40)</label><input value={form.spec_cd} onChange={e=>set('spec_cd',e.target.value)} maxLength={40}/></div>
-        <div className="form-group"><label>강종 (7)</label><input value={form.mat_grade} onChange={e=>set('mat_grade',e.target.value)} maxLength={7}/></div>
-        <div className="form-group"><label>QTB 선속</label><input value={form.qtb_speed} onChange={e=>set('qtb_speed',e.target.value)} maxLength={5}/></div>
-        <div className="form-group"><label>SPL A 선속</label><input value={form.spl_a_speed} onChange={e=>set('spl_a_speed',e.target.value)} maxLength={5}/></div>
-        <div className="form-group"><label>SPL B 선속</label><input value={form.spl_b_speed} onChange={e=>set('spl_b_speed',e.target.value)} maxLength={5}/></div>
-      </div>
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={send} disabled={!connected}>1001 전송</button>
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:12}}>
+        <span style={{fontSize:13,color:'var(--text-secondary)'}}>자동 권취</span>
+        <div className={`toggle ${autoWindingActive?'on':''}`} onClick={connected ? toggleAutoWinding : undefined} style={!connected?{opacity:0.4,cursor:'not-allowed'}:{}} />
+        <span className="mono" style={{fontSize:12,color:autoWindingActive?'var(--status-ok)':'var(--text-muted)'}}>
+          {autoWindingActive ? 'ACTIVE' : 'OFF'}
+        </span>
         {msg && <span className="form-msg">{msg}</span>}
+      </div>
+      <div style={{fontSize:11,color:'var(--text-muted)'}}>
+        1002 소재정보 수신 시 자동으로 1101 권취상태를 Layer 1~25까지 단계적 발신합니다.
       </div>
     </div>
   );
 }
 
-function MaterialPanel({ api, connected }) {
-  const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',heat_no:'S78588',spec_cd:'KS SD600',mat_grade:'C600CZ',dims_name:'BL1600',line_no:'A',qtb_speed:'01513',spl_a_speed:'01588',spl_b_speed:'01588',qtb_temp:'0400'});
-  const [msg, setMsg] = useState('');
-  const set = (k,v) => setForm(f=>({...f,[k]:v}));
-  const send = async () => {
-    const r = await api.post('/api/material', form);
-    setMsg(r.success ? 'TC 1002 전송 완료' : '전송 실패');
-    setTimeout(()=>setMsg(''),3000);
+// =========================================
+// LineStatusControl Component
+// =========================================
+function LineStatusControl({ api, workA, workB, onUpdate }) {
+  const setLine = async (field, value) => {
+    const body = { work_a: field === 'a' ? value : workA, work_b: field === 'b' ? value : workB };
+    await api.post('/api/set-line-status', body);
+    onUpdate(body);
   };
-  return (
-    <div className="card-body">
-      <div className="form-grid">
-        <div className="form-group"><label>번들번호 (10)</label><input value={form.bundle_no} onChange={e=>set('bundle_no',e.target.value)} maxLength={10}/></div>
-        <div className="form-group"><label>강편번호 (10)</label><input value={form.mtrl_no} onChange={e=>set('mtrl_no',e.target.value)} maxLength={10}/></div>
-        <div className="form-group"><label>HEAT번호 (6)</label><input value={form.heat_no} onChange={e=>set('heat_no',e.target.value)} maxLength={6}/></div>
-        <div className="form-group"><label>규격약호 (40)</label><input value={form.spec_cd} onChange={e=>set('spec_cd',e.target.value)} maxLength={40}/></div>
-        <div className="form-group"><label>강종 (7)</label><input value={form.mat_grade} onChange={e=>set('mat_grade',e.target.value)} maxLength={7}/></div>
-        <div className="form-group"><label>제품명 (6)</label><input value={form.dims_name} onChange={e=>set('dims_name',e.target.value)} maxLength={6}/></div>
-        <div className="form-group"><label>작업 Line</label>
-          <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
-        </div>
-        <div className="form-group"><label>QTB 선속</label><input value={form.qtb_speed} onChange={e=>set('qtb_speed',e.target.value)} maxLength={5}/></div>
-        <div className="form-group"><label>SPL A 선속</label><input value={form.spl_a_speed} onChange={e=>set('spl_a_speed',e.target.value)} maxLength={5}/></div>
-        <div className="form-group"><label>SPL B 선속</label><input value={form.spl_b_speed} onChange={e=>set('spl_b_speed',e.target.value)} maxLength={5}/></div>
-        <div className="form-group"><label>QTB 복열온도</label><input value={form.qtb_temp} onChange={e=>set('qtb_temp',e.target.value)} maxLength={4}/></div>
-      </div>
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={send} disabled={!connected}>1002 전송</button>
-        {msg && <span className="form-msg">{msg}</span>}
-      </div>
-    </div>
-  );
-}
 
-function ResultChangePanel({ api, connected }) {
-  const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',line_no:'A'});
-  const [fns, setFns] = useState(Array(10).fill(''));
-  const [msg, setMsg] = useState('');
-  const set = (k,v) => setForm(f=>({...f,[k]:v}));
-  const setFn = (i,v) => { const a=[...fns]; a[i]=v; setFns(a); };
-  const send = async () => {
-    const r = await api.post('/api/result-change', {...form, filenames: fns});
-    setMsg(r.success ? 'TC 1010 전송 완료' : '전송 실패');
-    setTimeout(()=>setMsg(''),3000);
-  };
   return (
     <div className="card-body">
-      <div className="form-grid">
-        <div className="form-group"><label>번들번호</label><input value={form.bundle_no} onChange={e=>set('bundle_no',e.target.value)} maxLength={10}/></div>
-        <div className="form-group"><label>강편번호</label><input value={form.mtrl_no} onChange={e=>set('mtrl_no',e.target.value)} maxLength={10}/></div>
-        <div className="form-group"><label>작업 Line</label>
-          <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
+      <div style={{display:'flex',gap:24,alignItems:'center'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:13,width:50}}>A 라인</span>
+          <select className="mono" value={workA} onChange={e=>setLine('a',e.target.value)}
+            style={{background:'var(--bg-primary)',border:'1px solid var(--border-default)',color:'var(--text-primary)',padding:'4px 8px',borderRadius:3,fontSize:13}}>
+            <option value="01">01 (정상)</option>
+            <option value="99">99 (비정상)</option>
+          </select>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:13,width:50}}>B 라인</span>
+          <select className="mono" value={workB} onChange={e=>setLine('b',e.target.value)}
+            style={{background:'var(--bg-primary)',border:'1px solid var(--border-default)',color:'var(--text-primary)',padding:'4px 8px',borderRadius:3,fontSize:13}}>
+            <option value="01">01 (정상)</option>
+            <option value="99">99 (비정상)</option>
+          </select>
         </div>
       </div>
-      <div style={{marginTop:8,fontSize:11,color:'var(--text-muted)'}}>변경 이미지 파일명 (각 50자 이내)</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4,marginTop:4}}>
-        {fns.map((fn,i) => (
-          <div className="form-group" key={i}><label>파일 {i+1}</label><input value={fn} onChange={e=>setFn(i,e.target.value)} maxLength={50} placeholder="예: 20251230_C300ZZ_..._N.jpg"/></div>
-        ))}
-      </div>
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={send} disabled={!connected}>1010 전송</button>
-        {msg && <span className="form-msg">{msg}</span>}
+      <div style={{fontSize:11,color:'var(--text-muted)',marginTop:8}}>
+        1199 Alive 전문에 포함되어 L2 서버로 전송됩니다.
       </div>
     </div>
   );
@@ -507,13 +494,14 @@ function App() {
   const api = useApi();
   const [page, setPage] = useState('dashboard');
   const [tcpState, setTcpState] = useState('disconnected');
-  const [aliveData, setAliveData] = useState({tx:0,rx:0,workA:'',workB:''});
+  const [aliveData, setAliveData] = useState({tx:0,rx:0,workA:'01',workB:'01'});
   const [lastRx, setLastRx] = useState('');
   const [layers, setLayers] = useState(Array(25).fill('U'));
   const [layerCount, setLayerCount] = useState(0);
+  const [setup, setSetup] = useState(null);
   const [material, setMaterial] = useState(null);
+  const [autoWindingActive, setAutoWindingActive] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [ctrlTab, setCtrlTab] = useState('setup');
 
   const tcpConnected = tcpState !== 'disconnected';
 
@@ -524,11 +512,14 @@ function App() {
         setAliveData({
           tx: data.status.alive_count_tx || 0,
           rx: data.status.alive_count_rx || 0,
-          workA: data.status.work_a || '',
-          workB: data.status.work_b || '',
+          workA: data.status.work_a || '01',
+          workB: data.status.work_b || '01',
         });
         setLastRx(data.status.last_alive_rx_time || '');
       }
+      if (data.setup) setSetup(data.setup);
+      if (data.material) setMaterial(data.material);
+      if (data.auto_winding_active !== undefined) setAutoWindingActive(data.auto_winding_active);
       if (data.coils && data.coils.length > 0) {
         const c = data.coils[data.coils.length - 1];
         if (c.layers && c.layers.length > 0) {
@@ -542,22 +533,28 @@ function App() {
       setTcpState(data.state);
     });
     on('alive_received', (data) => {
-      setAliveData(d => ({...d, rx: data.count, workA: data.work_a, workB: data.work_b}));
+      setAliveData(d => ({...d, rx: data.count}));
       setLastRx(data.timestamp);
+    });
+    on('setup_received', (data) => {
+      setSetup(data);
+    });
+    on('material_received', (data) => {
+      setMaterial(data);
     });
     on('winding_status', (data) => {
       if (data.layers) setLayers(data.layers.map(l => l.status));
       setLayerCount(data.layer_count || 0);
-      if (!material || material.bundle_no !== data.bundle_no) {
-        setMaterial(m => ({...(m||{}), bundle_no: data.bundle_no, mtrl_no: data.mtrl_no, line_no: data.line_no}));
-      }
+    });
+    on('auto_winding_changed', (data) => {
+      setAutoWindingActive(data.active);
+    });
+    on('line_status_changed', (data) => {
+      setAliveData(d => ({...d, workA: data.work_a, workB: data.work_b}));
     });
     on('packet_log', (data) => {
       setLogs(prev => [{...data}, ...prev].slice(0, 500));
-      if (data.tc === '1099') setAliveData(d => ({...d, tx: data.parsed?.count || d.tx}));
-      if (data.tc === '1002' && data.direction === 'TX') {
-        setMaterial(data.parsed);
-      }
+      if (data.tc === '1199' && data.direction === 'TX') setAliveData(d => ({...d, tx: data.parsed?.count || d.tx}));
     });
   }, [on]);
 
@@ -566,9 +563,9 @@ function App() {
       <Header tcpState={tcpState} wsState={wsState} aliveData={aliveData} lastRx={lastRx} />
 
       <div className="sidebar">
-        <div className="nav-label">메뉴</div>
+        <div className="nav-label">SPL</div>
         <div className={`nav-item ${page==='dashboard'?'active':''}`} onClick={()=>setPage('dashboard')}>대시보드</div>
-        <div className={`nav-item ${page==='control'?'active':''}`} onClick={()=>setPage('control')}>조작 패널</div>
+        <div className={`nav-item ${page==='control'?'active':''}`} onClick={()=>setPage('control')}>제어 패널</div>
         <div className={`nav-item ${page==='logs'?'active':''}`} onClick={()=>setPage('logs')}>전문 로그</div>
       </div>
 
@@ -577,28 +574,22 @@ function App() {
           <>
             <div className="grid-row grid-top">
               <div className="card">
-                <div className="card-header">코일 정보</div>
-                <div className="card-body"><CoilInfo material={material} /></div>
+                <div className="card-header">L2 수신 정보</div>
+                <div className="card-body"><ReceivedInfo setup={setup} material={material} /></div>
               </div>
               <div className="card">
-                <div className="card-header">25-Layer 권취상태</div>
+                <div className="card-header">
+                  <span>25-Layer 권취상태 (SPL → L2)</span>
+                  <span className="mono" style={{fontSize:11,color:autoWindingActive?'var(--status-ok)':'var(--text-muted)'}}>
+                    {autoWindingActive ? 'AUTO' : 'MANUAL'}
+                  </span>
+                </div>
                 <div className="card-body"><LayerGrid layers={layers} layerCount={layerCount} /></div>
               </div>
             </div>
             <div className="card">
-              <div className="card-header">조작 패널</div>
-              <div className="tabs">
-                <div className={`tab ${ctrlTab==='setup'?'active':''}`} onClick={()=>setCtrlTab('setup')}>생산정보 (1001)</div>
-                <div className={`tab ${ctrlTab==='material'?'active':''}`} onClick={()=>setCtrlTab('material')}>소재정보 (1002)</div>
-                <div className={`tab ${ctrlTab==='result'?'active':''}`} onClick={()=>setCtrlTab('result')}>판정변경 (1010)</div>
-              </div>
-              {ctrlTab==='setup' && <SetupPanel api={api} connected={tcpConnected}/>}
-              {ctrlTab==='material' && <MaterialPanel api={api} connected={tcpConnected}/>}
-              {ctrlTab==='result' && <ResultChangePanel api={api} connected={tcpConnected}/>}
-            </div>
-            <div className="card" style={{flex:1,minHeight:0,display:'flex',flexDirection:'column'}}>
               <div className="card-header">전문 로그</div>
-              <div style={{flex:1,minHeight:0,overflow:'hidden'}}><LogPanel logs={logs}/></div>
+              <div style={{overflow:'hidden'}}><LogPanel logs={logs}/></div>
             </div>
           </>
         )}
@@ -606,16 +597,21 @@ function App() {
         {page === 'control' && (
           <>
             <div className="card">
-              <div className="card-header">생산정보 전송 (TC 1001)</div>
-              <SetupPanel api={api} connected={tcpConnected}/>
+              <div className="card-header">자동 권취 제어</div>
+              <WindingControl api={api} connected={tcpConnected} autoWindingActive={autoWindingActive} autoWindingEnabled={true} />
             </div>
             <div className="card">
-              <div className="card-header">소재정보 전송 (TC 1002)</div>
-              <MaterialPanel api={api} connected={tcpConnected}/>
+              <div className="card-header">라인 가동상태 (1199 Alive)</div>
+              <LineStatusControl
+                api={api}
+                workA={aliveData.workA}
+                workB={aliveData.workB}
+                onUpdate={(d)=>setAliveData(a=>({...a,workA:d.work_a,workB:d.work_b}))}
+              />
             </div>
             <div className="card">
-              <div className="card-header">판정결과 변경 (TC 1010)</div>
-              <ResultChangePanel api={api} connected={tcpConnected}/>
+              <div className="card-header">L2 수신 정보</div>
+              <div className="card-body"><ReceivedInfo setup={setup} material={material} /></div>
             </div>
           </>
         )}
