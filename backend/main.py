@@ -6,7 +6,11 @@ TCP Server (port 12147) + FastAPI REST/WebSocket (port 8080)을
 
 import asyncio
 import logging
+import sys
+import os
 from contextlib import asynccontextmanager
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uvicorn
 from fastapi import FastAPI
