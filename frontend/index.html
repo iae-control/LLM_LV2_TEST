@@ -133,14 +133,22 @@ body {
 .log-filter.active { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--status-info); }
 .log-list { max-height: 200px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; }
 .log-list.full { max-height: none; flex: 1; }
-.log-entry { padding: 2px 12px; border-bottom: 1px solid rgba(48,54,61,0.3); display: flex; gap: 8px; }
+.log-entry { padding: 2px 12px; border-bottom: 1px solid rgba(48,54,61,0.3); display: flex; gap: 8px; align-items: center; }
 .log-entry:hover { background: var(--bg-tertiary); }
+.log-entry.expanded { border-bottom: none; background: rgba(28,35,51,0.5); }
 .log-time { color: var(--text-muted); flex-shrink: 0; }
 .log-dir { font-weight: 600; flex-shrink: 0; width: 22px; }
 .log-dir.TX { color: var(--status-info); }
 .log-dir.RX { color: var(--status-ok); }
+.log-expand-btn { width: 18px; height: 18px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 2px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; line-height: 1; padding: 0; }
+.log-expand-btn:hover { border-color: var(--status-info); color: var(--text-primary); }
 .log-tc { color: var(--status-warning); flex-shrink: 0; width: 48px; }
 .log-detail { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-expand { padding: 0 12px 4px 42px; border-bottom: 1px solid rgba(48,54,61,0.3); background: rgba(28,35,51,0.5); }
+.log-expand-row { display: flex; gap: 8px; padding: 2px 0; align-items: flex-start; }
+.log-expand-label { font-size: 11px; color: var(--text-muted); flex-shrink: 0; width: 36px; }
+.log-expand-data { font-size: 11px; color: var(--text-secondary); overflow-x: auto; white-space: nowrap; padding-bottom: 2px; }
+.log-hex-field { padding: 1px 3px; border-radius: 2px; margin-right: 4px; display: inline-block; cursor: default; }
 
 /* Line status */
 .line-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: 500; }
@@ -180,6 +188,61 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 const API_BASE = 'http://localhost:8080';
 const WS_URL = 'ws://localhost:8080/ws';
+
+// =========================================
+// TC Field Maps (for hex color-coding)
+// =========================================
+const FIELD_COLORS = [
+  'rgba(59,130,246,0.35)',  // blue
+  'rgba(34,197,94,0.30)',   // green
+  'rgba(234,179,8,0.28)',   // yellow
+  'rgba(239,68,68,0.30)',   // red
+  'rgba(168,85,247,0.30)',  // purple
+  'rgba(249,115,22,0.30)',  // orange
+  'rgba(6,182,212,0.30)',   // cyan
+  'rgba(236,72,153,0.30)',  // pink
+];
+const TC_FIELDS = {
+  '1001': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'DIMS_NAME',s:24,e:30},{n:'SPEC_CD',s:30,e:70},{n:'MAT_GRADE',s:70,e:77},
+    {n:'QTB_SPEED',s:77,e:82},{n:'SPL_A_SPEED',s:82,e:87},{n:'SPL_B_SPEED',s:87,e:92},
+    {n:'Spare',s:92,e:128},
+  ],
+  '1002': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'BUNDLE_NO',s:24,e:34},{n:'MTRL_NO',s:34,e:44},{n:'HEAT_NO',s:44,e:50},
+    {n:'SPEC_CD',s:50,e:90},{n:'MAT_GRADE',s:90,e:97},{n:'DIMS_NAME',s:97,e:103},
+    {n:'Line_NO',s:103,e:104},{n:'QTB_SPEED',s:104,e:109},{n:'SPL_A_SPEED',s:109,e:114},
+    {n:'SPL_B_SPEED',s:114,e:119},{n:'QTB_TEMP',s:119,e:123},{n:'Spare',s:123,e:256},
+  ],
+  '1010': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'BUNDLE_NO',s:24,e:34},{n:'MTRL_NO',s:34,e:44},{n:'Line_NO',s:44,e:45},
+    {n:'FILE_1',s:45,e:95},{n:'FILE_2',s:95,e:145},{n:'FILE_3',s:145,e:195},
+    {n:'FILE_4',s:195,e:245},{n:'FILE_5',s:245,e:295},{n:'FILE_6',s:295,e:345},
+    {n:'FILE_7',s:345,e:395},{n:'FILE_8',s:395,e:445},{n:'FILE_9',s:445,e:495},
+    {n:'FILE_10',s:495,e:545},{n:'Spare',s:545,e:576},
+  ],
+  '1099': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'Count',s:24,e:28},{n:'Spare',s:28,e:64},
+  ],
+  '1101': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'BUNDLE_NO',s:24,e:34},{n:'MTRL_NO',s:34,e:44},{n:'Line_NO',s:44,e:45},
+    {n:'LAYER_COUNT',s:45,e:47},{n:'LAYERS(25)',s:47,e:72},
+  ],
+  '1199': [
+    {n:'TcCode',s:0,e:4},{n:'Date',s:4,e:18},{n:'TcLength',s:18,e:24},
+    {n:'Count',s:24,e:28},{n:'Work_A',s:28,e:30},{n:'Work_B',s:30,e:32},
+    {n:'Spare',s:32,e:52},
+  ],
+};
+
+function toHex(str) {
+  return Array.from(str).map(c => c.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+}
 
 // =========================================
 // WebSocket Hook
@@ -523,6 +586,7 @@ function ManualWindingSend({ api, connected }) {
 function LogPanel({ logs, full }) {
   const [dirFilter, setDirFilter] = useState('ALL');
   const [tcFilter, setTcFilter] = useState('ALL');
+  const [expanded, setExpanded] = useState(new Set());
 
   const filtered = useMemo(() => {
     let fl = logs;
@@ -530,6 +594,17 @@ function LogPanel({ logs, full }) {
     if (tcFilter !== 'ALL') fl = fl.filter(l => l.tc === tcFilter);
     return fl;
   }, [logs, dirFilter, tcFilter]);
+
+  const logKey = (log, i) => `${log.timestamp}_${log.direction}_${log.tc}_${i}`;
+
+  const toggleExpand = (key) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const formatDetail = (log) => {
     const p = log.parsed || {};
@@ -539,7 +614,24 @@ function LogPanel({ logs, full }) {
     if (log.tc === '1002') return `${p.bundle_no||''} ${p.dims_name||''} ${p.line_no||''}`;
     if (log.tc === '1001') return `${p.dims_name||''} ${p.mat_grade||''}`;
     if (log.tc === '1010') return `${p.bundle_no||''} ${p.line_no||''}`;
-    return `${log.raw?.length||0}B`;
+    return `${(log.raw||log.raw_ascii||'').length}B`;
+  };
+
+  const renderHexFields = (raw, tc) => {
+    const fields = TC_FIELDS[tc];
+    if (!fields) return React.createElement('span', null, toHex(raw));
+    return fields.map((f, idx) => {
+      const segment = raw.slice(f.s, Math.min(f.e, raw.length));
+      if (!segment) return null;
+      const hex = toHex(segment);
+      const color = FIELD_COLORS[idx % FIELD_COLORS.length];
+      return React.createElement('span', {
+        key: idx,
+        className: 'log-hex-field',
+        style: { background: color },
+        title: `${f.n} [${f.s}:${f.e}] ${f.e - f.s}B`
+      }, hex);
+    });
   };
 
   const rootStyle = full ? {display:'flex',flexDirection:'column',height:'100%'} : {};
@@ -557,14 +649,34 @@ function LogPanel({ logs, full }) {
       </div>
       <div className={`log-list${full?' full':''}`}>
         {filtered.length === 0 && <div className="empty" style={{padding:12}}>로그 없음</div>}
-        {filtered.map((log, i) => (
-          <div className="log-entry" key={i}>
-            <span className="log-time">{(log.timestamp||'').split(' ').pop()||''}</span>
-            <span className={`log-dir ${log.direction}`}>{log.direction}</span>
-            <span className="log-tc">TC={log.tc}</span>
-            <span className="log-detail">{formatDetail(log)}</span>
-          </div>
-        ))}
+        {filtered.map((log, i) => {
+          const key = logKey(log, i);
+          const isExp = expanded.has(key);
+          const rawStr = log.raw || log.raw_ascii || '';
+          return (
+            <React.Fragment key={i}>
+              <div className={`log-entry${isExp?' expanded':''}`}>
+                <span className="log-time">{(log.timestamp||'').split(' ').pop()||''}</span>
+                <span className={`log-dir ${log.direction}`}>{log.direction}</span>
+                <button className="log-expand-btn" onClick={()=>toggleExpand(key)} title={isExp?'접기':'펼치기'}>{isExp?'\u2212':'+'}</button>
+                <span className="log-tc">TC={log.tc}</span>
+                <span className="log-detail">{formatDetail(log)}</span>
+              </div>
+              {isExp && rawStr && (
+                <div className="log-expand">
+                  <div className="log-expand-row">
+                    <span className="log-expand-label">{'\u251C'} RAW</span>
+                    <div className="log-expand-data mono">{rawStr}</div>
+                  </div>
+                  <div className="log-expand-row">
+                    <span className="log-expand-label">{'\u2514'} HEX</span>
+                    <div className="log-expand-data mono">{renderHexFields(rawStr, log.tc)}</div>
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
     </div>
   );
