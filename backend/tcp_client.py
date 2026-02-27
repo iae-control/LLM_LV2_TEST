@@ -36,6 +36,7 @@ class SPLTCPClient:
         self.writer: Optional[asyncio.StreamWriter] = None
 
         self.alive_counter = 0
+        self.alive_paused = False
         self._alive_task: Optional[asyncio.Task] = None
         self._receive_task: Optional[asyncio.Task] = None
         self._alive_watchdog_task: Optional[asyncio.Task] = None
@@ -243,6 +244,8 @@ class SPLTCPClient:
                 await asyncio.sleep(30)
                 if not self.writer:
                     break
+                if self.alive_paused:
+                    continue
                 self.alive_counter = (self.alive_counter + 1) % 10000
                 pkt = TC1199_Alive(
                     count=self.alive_counter,
@@ -331,6 +334,18 @@ class SPLTCPClient:
                     for i in range(25)
                 ],
             })
+        return success
+
+    async def send_result_change(self, bundle_no, mtrl_no, line_no, filenames):
+        """TC 1010 판정결과 변경 전송"""
+        pkt = TC1010_ResultChange(
+            bundle_no=bundle_no,
+            mtrl_no=mtrl_no,
+            line_no=line_no,
+            filenames=filenames,
+        )
+        raw = pkt.build()
+        success = await self.send_packet(raw, "1010")
         return success
 
     async def start_auto_winding(self, material=None):

@@ -46,9 +46,20 @@ class WindingRequest(BaseModel):
     layers: List[str] = []
 
 
+class ResultChangeRequest(BaseModel):
+    bundle_no: str = ""
+    mtrl_no: str = ""
+    line_no: str = "A"
+    filenames: List[str] = []
+
+
 class LineStatusRequest(BaseModel):
     work_a: str = "01"
     work_b: str = "01"
+
+
+class AlivePausedRequest(BaseModel):
+    paused: bool = False
 
 
 # --- REST Endpoints ---
@@ -70,6 +81,38 @@ async def send_winding(req: WindingRequest):
     )
     return {
         "success": success,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@router.post("/api/send-result-change")
+async def send_result_change(req: ResultChangeRequest):
+    """TC 1010 판정결과 변경 수동 전송"""
+    filenames = req.filenames
+    if len(filenames) < 10:
+        filenames = filenames + [""] * (10 - len(filenames))
+    filenames = filenames[:10]
+
+    success = await _tcp_client.send_result_change(
+        bundle_no=req.bundle_no,
+        mtrl_no=req.mtrl_no,
+        line_no=req.line_no,
+        filenames=filenames,
+    )
+    return {
+        "success": success,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@router.post("/api/toggle-alive")
+async def toggle_alive(req: AlivePausedRequest):
+    """Alive(1199) 발신 중단/재개"""
+    _tcp_client.alive_paused = req.paused
+    await _ws_manager.broadcast("alive_paused_changed", {"paused": req.paused})
+    return {
+        "success": True,
+        "paused": req.paused,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -179,6 +222,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "material": material_data,
             "result_change": result_change_data,
             "auto_winding_active": _tcp_client.auto_winding_active,
+            "alive_paused": _tcp_client.alive_paused,
         })
     except Exception:
         pass

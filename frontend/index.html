@@ -146,7 +146,7 @@ body {
 .log-detail { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-expand { padding: 0 12px 4px 42px; border-bottom: 1px solid rgba(48,54,61,0.3); background: rgba(28,35,51,0.5); }
 .log-expand-row { display: flex; gap: 8px; padding: 2px 0; align-items: flex-start; }
-.log-expand-label { font-size: 11px; color: var(--text-muted); flex-shrink: 0; width: 36px; }
+.log-expand-label { font-size: 11px; color: var(--text-muted); flex-shrink: 0; width: 48px; white-space: nowrap; }
 .log-expand-data { font-size: 11px; color: var(--text-secondary); overflow-x: auto; white-space: nowrap; padding-bottom: 2px; }
 .log-hex-field { padding: 1px 3px; border-radius: 2px; margin-right: 4px; display: inline-block; cursor: default; }
 
@@ -581,6 +581,86 @@ function ManualWindingSend({ api, connected }) {
 }
 
 // =========================================
+// ManualResultChangeSend Component (수동 1010 전송)
+// =========================================
+function ManualResultChangeSend({ api, connected }) {
+  const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',line_no:'A'});
+  const [files, setFiles] = useState(Array(10).fill(''));
+  const [msg, setMsg] = useState('');
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const setFile = (i,v) => { const a=[...files]; a[i]=v; setFiles(a); };
+
+  const send = async () => {
+    const r = await api.post('/api/send-result-change', {
+      ...form, filenames: files
+    });
+    setMsg(r.success ? 'TC 1010 전송 완료' : '전송 실패 (L2 미접속?)');
+    setTimeout(()=>setMsg(''),3000);
+  };
+
+  return (
+    <div className="card-body">
+      <div className="form-grid">
+        <div className="form-group"><label>번들번호 (10)</label><input value={form.bundle_no} onChange={e=>set('bundle_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>강편번호 (10)</label><input value={form.mtrl_no} onChange={e=>set('mtrl_no',e.target.value)} maxLength={10}/></div>
+        <div className="form-group"><label>작업 Line</label>
+          <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
+        </div>
+      </div>
+      <div style={{marginTop:8}}>
+        <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:4}}>파일명 (최대 10개, 각 50자)</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4}}>
+          {files.map((f,i) => (
+            <div key={i} style={{display:'flex',alignItems:'center',gap:4}}>
+              <span className="mono" style={{fontSize:10,color:'var(--text-muted)',width:16}}>{i+1}</span>
+              <input className="mono" value={f} onChange={e=>setFile(i,e.target.value)} maxLength={50}
+                style={{flex:1,background:'var(--bg-primary)',border:'1px solid var(--border-default)',
+                       color:'var(--text-primary)',padding:'3px 6px',borderRadius:3,fontSize:11}} placeholder={`파일명 ${i+1}`}/>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-primary" onClick={send} disabled={!connected}>1010 전송</button>
+        {msg && <span className="form-msg">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+// =========================================
+// AliveControl Component (Alive 발신 중단/재개)
+// =========================================
+function AliveControl({ api, connected, alivePaused, onUpdate }) {
+  const [msg, setMsg] = useState('');
+
+  const toggle = async () => {
+    const r = await api.post('/api/toggle-alive', { paused: !alivePaused });
+    if (r.success !== false) {
+      onUpdate(r.paused);
+      setMsg(r.paused ? 'Alive 발신 중단' : 'Alive 발신 재개');
+    } else { setMsg('실패'); }
+    setTimeout(()=>setMsg(''),3000);
+  };
+
+  return (
+    <div className="card-body">
+      <div style={{display:'flex',alignItems:'center',gap:16}}>
+        <span style={{fontSize:13,color:'var(--text-secondary)'}}>1199 Alive 발신</span>
+        <div className={`toggle ${!alivePaused?'on':''}`} onClick={connected ? toggle : undefined} style={!connected?{opacity:0.4,cursor:'not-allowed'}:{}} />
+        <span className="mono" style={{fontSize:12,color:!alivePaused?'var(--status-ok)':'var(--status-critical)'}}>
+          {alivePaused ? 'PAUSED' : 'ACTIVE'}
+        </span>
+        {msg && <span className="form-msg">{msg}</span>}
+      </div>
+      <div style={{fontSize:11,color:'var(--text-muted)',marginTop:8}}>
+        30초 주기로 L2 서버에 1199 Alive 전문을 발신합니다. 중단 시 L2에서 타임아웃 감지합니다.
+      </div>
+    </div>
+  );
+}
+
+// =========================================
 // LogPanel Component
 // =========================================
 function LogPanel({ logs, full }) {
@@ -595,13 +675,11 @@ function LogPanel({ logs, full }) {
     return fl;
   }, [logs, dirFilter, tcFilter]);
 
-  const logKey = (log, i) => `${log.timestamp}_${log.direction}_${log.tc}_${i}`;
-
-  const toggleExpand = (key) => {
+  const toggleExpand = (id) => {
     setExpanded(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -623,14 +701,21 @@ function LogPanel({ logs, full }) {
     return fields.map((f, idx) => {
       const segment = raw.slice(f.s, Math.min(f.e, raw.length));
       if (!segment) return null;
-      const hex = toHex(segment);
       const color = FIELD_COLORS[idx % FIELD_COLORS.length];
+      const hexBytes = Array.from(segment).map((c, bi) => {
+        const hex = c.charCodeAt(0).toString(16).padStart(2,'0');
+        const isSpace = c === ' ';
+        return React.createElement('span', {
+          key: bi,
+          style: isSpace ? {color:'#f85149'} : undefined,
+        }, hex);
+      });
       return React.createElement('span', {
         key: idx,
         className: 'log-hex-field',
         style: { background: color },
         title: `${f.n} [${f.s}:${f.e}] ${f.e - f.s}B`
-      }, hex);
+      }, hexBytes);
     });
   };
 
@@ -650,26 +735,26 @@ function LogPanel({ logs, full }) {
       <div className={`log-list${full?' full':''}`}>
         {filtered.length === 0 && <div className="empty" style={{padding:12}}>로그 없음</div>}
         {filtered.map((log, i) => {
-          const key = logKey(log, i);
-          const isExp = expanded.has(key);
+          const id = log._id;
+          const isExp = expanded.has(id);
           const rawStr = log.raw || log.raw_ascii || '';
           return (
-            <React.Fragment key={i}>
+            <React.Fragment key={id}>
               <div className={`log-entry${isExp?' expanded':''}`}>
                 <span className="log-time">{(log.timestamp||'').split(' ').pop()||''}</span>
                 <span className={`log-dir ${log.direction}`}>{log.direction}</span>
-                <button className="log-expand-btn" onClick={()=>toggleExpand(key)} title={isExp?'접기':'펼치기'}>{isExp?'\u2212':'+'}</button>
+                <button className="log-expand-btn" onClick={()=>toggleExpand(id)} title={isExp?'접기':'펼치기'}>{isExp?'\u2212':'+'}</button>
                 <span className="log-tc">TC={log.tc}</span>
                 <span className="log-detail">{formatDetail(log)}</span>
               </div>
               {isExp && rawStr && (
                 <div className="log-expand">
                   <div className="log-expand-row">
-                    <span className="log-expand-label">{'\u251C'} RAW</span>
+                    <span className="log-expand-label">{'\u251C'}&nbsp;RAW</span>
                     <div className="log-expand-data mono">{rawStr}</div>
                   </div>
                   <div className="log-expand-row">
-                    <span className="log-expand-label">{'\u2514'} HEX</span>
+                    <span className="log-expand-label">{'\u2514'}&nbsp;HEX</span>
                     <div className="log-expand-data mono">{renderHexFields(rawStr, log.tc)}</div>
                   </div>
                 </div>
@@ -698,7 +783,9 @@ function App() {
   const [material, setMaterial] = useState(null);
   const [resultChange, setResultChange] = useState(null);
   const [autoWindingActive, setAutoWindingActive] = useState(false);
+  const [alivePaused, setAlivePaused] = useState(false);
   const [logs, setLogs] = useState([]);
+  const logIdRef = useRef(0);
 
   const tcpConnected = tcpState !== 'disconnected';
 
@@ -718,6 +805,7 @@ function App() {
       if (data.material) setMaterial(data.material);
       if (data.result_change) setResultChange(data.result_change);
       if (data.auto_winding_active !== undefined) setAutoWindingActive(data.auto_winding_active);
+      if (data.alive_paused !== undefined) setAlivePaused(data.alive_paused);
       if (data.coils && data.coils.length > 0) {
         const c = data.coils[data.coils.length - 1];
         if (c.layers && c.layers.length > 0) {
@@ -725,7 +813,7 @@ function App() {
           setLayerCount(c.layer_count);
         }
       }
-      if (data.logs) setLogs(data.logs);
+      if (data.logs) setLogs(data.logs.map(l => ({...l, _id: ++logIdRef.current})));
     });
     on('connection_changed', (data) => {
       setTcpState(data.state);
@@ -750,11 +838,14 @@ function App() {
     on('auto_winding_changed', (data) => {
       setAutoWindingActive(data.active);
     });
+    on('alive_paused_changed', (data) => {
+      setAlivePaused(data.paused);
+    });
     on('line_status_changed', (data) => {
       setAliveData(d => ({...d, workA: data.work_a, workB: data.work_b}));
     });
     on('packet_log', (data) => {
-      setLogs(prev => [{...data}, ...prev].slice(0, 500));
+      setLogs(prev => [{...data, _id: ++logIdRef.current}, ...prev].slice(0, 500));
       if (data.tc === '1199' && data.direction === 'TX') setAliveData(d => ({...d, tx: data.parsed?.count || d.tx}));
     });
   }, [on]);
@@ -798,12 +889,20 @@ function App() {
         {page === 'control' && (
           <>
             <div className="card">
+              <div className="card-header">수동 1010 전송 (판정변경 → L2)</div>
+              <ManualResultChangeSend api={api} connected={tcpConnected} />
+            </div>
+            <div className="card">
               <div className="card-header">수동 1101 전송 (권취상태 → L2)</div>
               <ManualWindingSend api={api} connected={tcpConnected} />
             </div>
             <div className="card">
               <div className="card-header">자동 판정 시뮬레이션</div>
               <WindingControl api={api} connected={tcpConnected} autoWindingActive={autoWindingActive} autoWindingEnabled={true} />
+            </div>
+            <div className="card">
+              <div className="card-header">Alive 발신 제어 (1199)</div>
+              <AliveControl api={api} connected={tcpConnected} alivePaused={alivePaused} onUpdate={setAlivePaused} />
             </div>
             <div className="card">
               <div className="card-header">라인 가동상태 (1199 Alive)</div>
