@@ -481,8 +481,8 @@ class SPLTCPClient:
 
         파일명 형식: {date}_{bundle}_{mtrl}_{line}_L{nn}_{status}.jpg
         seed 파일: {image_dir}/seed.jpg
+        임시 디렉토리에 생성 후 FTP 업로드, 완료 후 img_dir로 이동.
         """
-        results = []
         img_dir = Path(self.image_dir)
         seed_path = img_dir / "seed.jpg"
 
@@ -490,22 +490,26 @@ class SPLTCPClient:
             logger.warning(f"[FTP] Seed file not found: {seed_path}")
             return [{"filename": "seed.jpg", "status": "seed_not_found"}]
 
-        # 항상 25개 레이어 파일 생성 (TC 1101은 고정 25 슬롯)
+        # 임시 디렉토리에 25개 레이어 파일 생성 (파일 잠금 방지)
+        tmp_dir = Path(tempfile.mkdtemp(prefix="spl_ftp_"))
         generated_files = []
         try:
+            seed_bytes = seed_path.read_bytes()
             for i in range(25):
                 status = layers[i] if i < len(layers) else "N"
                 filename = (
                     f"{date_str}_{bundle_no}_{mtrl_no}"
                     f"_{line_no}_L{str(i+1).zfill(2)}_{status}.jpg"
                 )
-                dest_path = img_dir / filename
-                shutil.copy2(str(seed_path), str(dest_path))
-                generated_files.append((filename, str(dest_path)))
-                logger.info(f"[FTP] Generated: {filename}")
+                tmp_path = tmp_dir / filename
+                tmp_path.write_bytes(seed_bytes)
+                generated_files.append((filename, str(tmp_path)))
+
+            logger.info(f"[FTP] Generated {len(generated_files)} files in {tmp_dir}")
 
         except Exception as e:
             logger.error(f"[FTP] File generation error: {e}")
+            shutil.rmtree(str(tmp_dir), ignore_errors=True)
             return [{"filename": "generation", "status": f"error: {e}"}]
 
         # FTP 업로드 (blocking I/O → run_in_executor)
@@ -513,46 +517,91 @@ class SPLTCPClient:
         upload_results = await loop.run_in_executor(
             None, self._ftp_upload_files, generated_files
         )
-        results.extend(upload_results)
-        return results
 
-    def _ftp_upload_files(self, files: list) -> list:
+        # 업로드 완료 후 img_dir에 복사 (로컬 보관용) + 임시 디렉토리 정리
+        try:
+            for filename, tmp_path in generated_files:
+                dest = img_dir / filename
+                try:
+                    shutil.move(tmp_path, str(dest))
+                except Exception:
+                    pass
+        finally:
+            shutil.rmtree(str(tmp_dir), ignore_errors=True)
+
+        ok_count = sum(1 for r in upload_results if r["status"] == "ok")
+        logger.info(f"[FTP] Upload complete: {ok_count}/{len(generated_files)} files OK")
+        return upload_results
+
+    def _ftp_upload_files(self, files: list, max_retries: int = 3) -> list:
         """FTP 서버에 파일 목록 업로드 (동기 — executor에서 실행)
 
         files: [(filename, local_path), ...]
+        실패 시 최대 max_retries회 재시도 (재접속 포함)
         """
+        import time
+
         results = []
         ftp = None
-        try:
-            ftp = ftplib.FTP(self.ftp_host, timeout=10)
-            ftp.login(self.ftp_user, self.ftp_pass)
+
+        def _connect_ftp():
+            """FTP 접속 + 로그인 + cwd"""
+            conn = ftplib.FTP(self.ftp_host, timeout=15)
+            conn.login(self.ftp_user, self.ftp_pass)
             if self.ftp_dir:
                 try:
-                    ftp.cwd(self.ftp_dir)
+                    conn.cwd(self.ftp_dir)
                 except ftplib.error_perm:
-                    # 디렉토리가 없으면 생성 시도
                     logger.warning(f"[FTP] Directory '{self.ftp_dir}' not found, creating...")
                     try:
-                        ftp.mkd(self.ftp_dir)
-                        ftp.cwd(self.ftp_dir)
+                        conn.mkd(self.ftp_dir)
+                        conn.cwd(self.ftp_dir)
                     except ftplib.all_errors as mkd_err:
                         logger.error(f"[FTP] Failed to create dir '{self.ftp_dir}': {mkd_err}")
-            cwd_path = ftp.pwd()
-            logger.info(f"[FTP] Connected to {self.ftp_host}, cwd={cwd_path}")
+            logger.info(f"[FTP] Connected to {self.ftp_host}, cwd={conn.pwd()}")
+            return conn
+
+        try:
+            ftp = _connect_ftp()
 
             for filename, local_path in files:
-                try:
-                    with open(local_path, "rb") as f:
-                        ftp.storbinary(f"STOR {filename}", f)
+                uploaded = False
+                last_err = None
+
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        with open(local_path, "rb") as f:
+                            ftp.storbinary(f"STOR {filename}", f)
+                        uploaded = True
+                        break
+                    except (ftplib.all_errors, OSError) as e:
+                        last_err = e
+                        logger.warning(f"[FTP] Upload attempt {attempt}/{max_retries} "
+                                       f"failed for {filename}: {e}")
+                        # FTP 연결 끊어진 경우 재접속
+                        try:
+                            ftp.pwd()
+                        except Exception:
+                            logger.info("[FTP] Reconnecting...")
+                            try:
+                                ftp.quit()
+                            except Exception:
+                                pass
+                            try:
+                                ftp = _connect_ftp()
+                            except Exception as conn_err:
+                                logger.error(f"[FTP] Reconnect failed: {conn_err}")
+                        if attempt < max_retries:
+                            time.sleep(0.5)
+
+                if uploaded:
                     results.append({"filename": filename, "status": "ok"})
-                    logger.info(f"[FTP] Uploaded: {filename}")
-                except Exception as e:
-                    results.append({"filename": filename, "status": f"error: {e}"})
-                    logger.error(f"[FTP] Upload failed {filename}: {e}")
+                else:
+                    results.append({"filename": filename, "status": f"error: {last_err}"})
+                    logger.error(f"[FTP] Upload FAILED after {max_retries} retries: {filename}")
 
         except ftplib.all_errors as e:
             logger.error(f"[FTP] Connection error: {e}")
-            # 업로드 못한 파일들 모두 에러 처리
             for filename, _ in files:
                 if not any(r["filename"] == filename for r in results):
                     results.append({"filename": filename, "status": f"ftp_error: {e}"})
