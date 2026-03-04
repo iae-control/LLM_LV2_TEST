@@ -538,6 +538,7 @@ class SPLTCPClient:
 
         files: [(filename, local_path), ...]
         실패 시 최대 max_retries회 재시도 (재접속 포함)
+        업로드 후 ftp.size()로 실제 존재 확인
         """
         import time
 
@@ -561,24 +562,43 @@ class SPLTCPClient:
             logger.info(f"[FTP] Connected to {self.ftp_host}, cwd={conn.pwd()}")
             return conn
 
+        def _upload_and_verify(conn, filename, local_path, local_size):
+            """STOR 후 SIZE로 서버에 실제 존재하는지 확인"""
+            with open(local_path, "rb") as f:
+                resp = conn.storbinary(f"STOR {filename}", f)
+            # STOR 응답 확인 (226 = 전송 완료)
+            if not resp.startswith("226"):
+                raise ftplib.error_reply(f"Unexpected STOR response: {resp}")
+            # SIZE 명령으로 실제 파일 존재+크기 확인
+            try:
+                remote_size = conn.size(filename)
+                if remote_size is None or remote_size != local_size:
+                    raise ftplib.error_reply(
+                        f"Size mismatch: local={local_size}, remote={remote_size}")
+            except ftplib.error_perm:
+                # SIZE 미지원 서버 → NLST로 존재 확인
+                file_list = conn.nlst()
+                if filename not in file_list:
+                    raise ftplib.error_reply(f"File not found after STOR: {filename}")
+
         try:
             ftp = _connect_ftp()
 
             for filename, local_path in files:
+                local_size = os.path.getsize(local_path)
                 uploaded = False
                 last_err = None
 
                 for attempt in range(1, max_retries + 1):
                     try:
-                        with open(local_path, "rb") as f:
-                            ftp.storbinary(f"STOR {filename}", f)
+                        _upload_and_verify(ftp, filename, local_path, local_size)
                         uploaded = True
                         break
                     except (ftplib.all_errors, OSError) as e:
                         last_err = e
-                        logger.warning(f"[FTP] Upload attempt {attempt}/{max_retries} "
-                                       f"failed for {filename}: {e}")
-                        # FTP 연결 끊어진 경우 재접속
+                        logger.warning(f"[FTP] Attempt {attempt}/{max_retries} "
+                                       f"failed {filename}: {e}")
+                        # FTP 연결 상태 확인 → 끊어졌으면 재접속
                         try:
                             ftp.pwd()
                         except Exception:
@@ -598,7 +618,19 @@ class SPLTCPClient:
                     results.append({"filename": filename, "status": "ok"})
                 else:
                     results.append({"filename": filename, "status": f"error: {last_err}"})
-                    logger.error(f"[FTP] Upload FAILED after {max_retries} retries: {filename}")
+                    logger.error(f"[FTP] FAILED after {max_retries} retries: {filename}")
+
+            # 최종 검증: 서버 디렉토리 파일 목록 확인
+            try:
+                remote_files = ftp.nlst()
+                uploaded_names = [f for f, _ in files]
+                found = [f for f in uploaded_names if f in remote_files]
+                missing = [f for f in uploaded_names if f not in remote_files]
+                logger.info(f"[FTP] Verify: {len(found)}/{len(files)} files exist on server")
+                if missing:
+                    logger.error(f"[FTP] MISSING on server: {missing[:5]}...")
+            except Exception as ve:
+                logger.warning(f"[FTP] Verify listing failed: {ve}")
 
         except ftplib.all_errors as e:
             logger.error(f"[FTP] Connection error: {e}")
