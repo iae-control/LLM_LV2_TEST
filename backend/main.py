@@ -14,8 +14,10 @@ from contextlib import asynccontextmanager
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import uvicorn
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from backend.data_store import DataStore
 from backend.ws_manager import WebSocketManager
@@ -67,6 +69,14 @@ app.add_middleware(
 # 라우터 등록 & 의존성 주입
 init_routes(data_store, ws_manager, tcp_client)
 app.include_router(router)
+
+# 프론트엔드 HTML 서빙
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse(FRONTEND_DIR / "index.html", media_type="text/html")
 
 
 def main():
