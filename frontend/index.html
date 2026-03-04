@@ -66,6 +66,8 @@ body {
 .grid-2 { grid-template-columns: 1fr 1fr; }
 .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
 .grid-top { grid-template-columns: 280px 1fr; }
+.dashboard-page { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; overflow: hidden; }
+.dashboard-log-card { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 /* Data fields */
 .field { margin-bottom: 6px; }
@@ -863,7 +865,7 @@ function App() {
 
       <div className="main">
         {page === 'dashboard' && (
-          <>
+          <div className="dashboard-page">
             <div className="grid-row grid-top">
               <div className="card">
                 <div className="card-header">L2 수신 정보</div>
@@ -879,11 +881,11 @@ function App() {
                 <div className="card-body"><LayerGrid layers={layers} layerCount={layerCount} /></div>
               </div>
             </div>
-            <div className="card">
+            <div className="card dashboard-log-card">
               <div className="card-header">전문 로그</div>
-              <div style={{overflow:'hidden'}}><LogPanel logs={logs}/></div>
+              <div style={{flex:1,overflow:'hidden',minHeight:0}}><LogPanel logs={logs} full/></div>
             </div>
-          </>
+          </div>
         )}
 
         {page === 'control' && (
