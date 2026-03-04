@@ -42,7 +42,6 @@ class SPLSimulator:
         self._alive_task: asyncio.Task = None
         self._receive_task: asyncio.Task = None
         self._rx_log: list = []
-        self._interval_range = (2.0, 5.0)
 
     async def connect(self):
         try:
@@ -165,12 +164,10 @@ class SPLSimulator:
         print(f"[RX 1002] 번들={data.bundle_no} MTRL={data.mtrl_no} "
               f"라인={data.line_no} 제품명={data.dims_name}")
 
-        # 자동 권취 시작
+        # 자동 권취 — 25개 레이어 한 번에 전송
         if self.winding_engine:
             self.winding_engine.cancel()
-        self.winding_engine = AutoWindingEngine(
-            self, data, interval_range=self._interval_range
-        )
+        self.winding_engine = AutoWindingEngine(self, data)
         asyncio.create_task(self.winding_engine.run())
 
     async def _handle_result_change(self, data: TC1010_ResultChange):
@@ -204,8 +201,7 @@ class SPLSimulator:
                 logger.error(f"Send error: {e}")
                 print(f"[SPL] 전송 오류: {e}")
 
-    def set_interval(self, min_sec: float, max_sec: float):
-        self._interval_range = (min_sec, max_sec)
-        if self.winding_engine:
-            self.winding_engine.interval_range = self._interval_range
-        print(f"[SPL] 권취 간격 설정: {min_sec}~{max_sec}초")
+    def set_layers(self, layers: list):
+        """시뮬레이터 자동 권취 레이어 상태 설정"""
+        self._custom_layers = layers
+        print(f"[SPL] 레이어 설정: {''.join(layers[:25])}")

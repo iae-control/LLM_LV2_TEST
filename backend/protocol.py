@@ -97,9 +97,10 @@ class TC1001_Setup:
     date: str = ""
 
     def build(self) -> str:
+        date_field = self.date if self.date else now_14()
         msg = (
             self.TC                                  # [0:4]    4B
-            + now_14()                               # [4:18]  14B
+            + date_field                             # [4:18]  14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]  6B  "000128"
             + pad_right(self.dims_name, 6)           # [24:30]  6B
             + pad_right(self.spec_cd, 40)            # [30:70] 40B
@@ -189,9 +190,10 @@ class TC1002_Material:
     date: str = ""
 
     def build(self) -> str:
+        date_field = self.date if self.date else now_14()
         msg = (
             self.TC                                  # [0:4]      4B
-            + now_14()                               # [4:18]    14B
+            + date_field                             # [4:18]    14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]    6B  "000256"
             + pad_right(self.bundle_no, 10)          # [24:34]   10B
             + pad_right(self.mtrl_no, 10)            # [34:44]   10B
@@ -288,10 +290,11 @@ class TC1010_ResultChange:
         fns = fns[:10]
 
         files_str = "".join(pad_right(fn, 50) for fn in fns)
+        date_field = self.date if self.date else now_14()
 
         msg = (
             self.TC                                  # [0:4]      4B
-            + now_14()                               # [4:18]    14B
+            + date_field                             # [4:18]    14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]    6B  "000576"
             + pad_right(self.bundle_no, 10)          # [24:34]   10B
             + pad_right(self.mtrl_no, 10)            # [34:44]   10B
@@ -360,9 +363,10 @@ class TC1099_Alive:
 
     def build(self) -> str:
         count_val = int(self.count) % 10000
+        date_field = self.date if self.date else now_14()
         msg = (
             self.TC                                  # [0:4]    4B
-            + now_14()                               # [4:18]  14B
+            + date_field                             # [4:18]  14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]  6B  "000064"
             + pad_left(str(count_val), 4)            # [24:28]  4B
             + " " * 36                               # [28:64] 36B spare
@@ -431,10 +435,11 @@ class TC1101_WindingStatus:
         full_layers = list(self.layers) + ["N"] * (25 - len(self.layers))
         full_layers = full_layers[:25]
         layers_str = "".join((s or "N")[:1] for s in full_layers)
+        date_field = self.date if self.date else now_14()
 
         msg = (
             self.TC                                  # [0:4]    4B
-            + now_14()                               # [4:18]  14B
+            + date_field                             # [4:18]  14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]  6B  "000072"
             + pad_right(self.bundle_no, 10)          # [24:34] 10B
             + pad_right(self.mtrl_no, 10)            # [34:44] 10B
@@ -506,9 +511,10 @@ class TC1199_Alive:
 
     def build(self) -> str:
         count_val = int(self.count) % 10000
+        date_field = self.date if self.date else now_14()
         msg = (
             self.TC                                  # [0:4]    4B
-            + now_14()                               # [4:18]  14B
+            + date_field                             # [4:18]  14B
             + pad_left(str(self.TOTAL_LEN), 6)       # [18:24]  6B  "000052"
             + pad_left(str(count_val), 4)            # [24:28]  4B
             + pad_left(self.work_a, 2)               # [28:30]  2B

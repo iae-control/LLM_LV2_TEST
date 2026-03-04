@@ -78,8 +78,8 @@ class DataStore:
         self.work_a: str = "01"
         self.work_b: str = "01"
 
-        # 자동 권취 제어
-        self.auto_winding_enabled: bool = True
+        # 자동 권취 제어 (1002 수신 시 자동 1101 전송 여부)
+        self.auto_winding_enabled: bool = False
 
         # 로그
         self.alive_history: deque = deque(maxlen=100)

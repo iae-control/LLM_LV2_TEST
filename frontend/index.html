@@ -400,7 +400,14 @@ function LayerGrid({ layers, layerCount }) {
 // =========================================
 // ReceivedInfo Component (L2에서 수신한 정보)
 // =========================================
-function ReceivedInfo({ setup, material, resultChange }) {
+function ReceivedInfo({ setup, material, resultChange, fileRenameResults, ftpUploadResults }) {
+  const statusIcon = (st) => {
+    if (st === 'ok') return {icon:'\u2713', color:'var(--status-ok)'};
+    if (st === 'already_exists') return {icon:'\u2261', color:'var(--status-warning)'};
+    if (st === 'not_found') return {icon:'?', color:'var(--text-muted)'};
+    return {icon:'\u2717', color:'var(--status-critical)'};
+  };
+
   return (
     <div>
       <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:6,fontWeight:600}}>L2 수신 데이터</div>
@@ -448,36 +455,144 @@ function ReceivedInfo({ setup, material, resultChange }) {
           )}
         </div>
       )}
+      {fileRenameResults && fileRenameResults.results && fileRenameResults.results.length > 0 && (
+        <div style={{marginTop:8,padding:'6px 8px',background:'rgba(88,166,255,0.06)',borderRadius:4,border:'1px solid rgba(88,166,255,0.15)'}}>
+          <div style={{fontSize:11,color:'var(--status-info)',marginBottom:4,fontWeight:600}}>
+            파일명 변경 결과 ({fileRenameResults.bundle_no})
+          </div>
+          {fileRenameResults.results.map((r, i) => {
+            const si = statusIcon(r.status);
+            return (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:6,padding:'2px 0',fontSize:11}}>
+                <span className="mono" style={{color:si.color,width:14,textAlign:'center',flexShrink:0}}>{si.icon}</span>
+                {r.old && r.status === 'ok' ? (
+                  <span className="mono" style={{color:'var(--text-secondary)'}}>
+                    <span style={{color:'var(--text-muted)'}}>{r.old}</span>
+                    <span style={{color:'var(--text-muted)',margin:'0 4px'}}>{'\u2192'}</span>
+                    <span style={{color:'var(--status-ok)'}}>{r.new}</span>
+                  </span>
+                ) : (
+                  <span className="mono" style={{color:si.color}}>{r.new} ({r.status})</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {ftpUploadResults && ftpUploadResults.results && ftpUploadResults.results.length > 0 && (
+        <div style={{marginTop:8,padding:'6px 8px',background:'rgba(168,85,247,0.06)',borderRadius:4,border:'1px solid rgba(168,85,247,0.15)'}}>
+          <div style={{fontSize:11,color:'rgba(168,85,247,0.9)',marginBottom:4,fontWeight:600}}>
+            FTP 업로드 ({ftpUploadResults.bundle_no}) — {ftpUploadResults.results.filter(r=>r.status==='ok').length}/{ftpUploadResults.results.length}
+          </div>
+          {ftpUploadResults.results.map((r, i) => {
+            const isOk = r.status === 'ok';
+            return (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:6,padding:'1px 0',fontSize:11}}>
+                <span className="mono" style={{color:isOk?'var(--status-ok)':'var(--status-critical)',width:14,textAlign:'center',flexShrink:0}}>
+                  {isOk ? '\u2713' : '\u2717'}
+                </span>
+                <span className="mono" style={{color:isOk?'var(--text-secondary)':'var(--status-critical)'}}>
+                  {r.filename}{!isOk ? ` (${r.status})` : ''}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 // =========================================
-// WindingControl Component
+// WindingControl Component (자동 권취 — 판정 상태만 설정, 나머지는 L2 수신 정보 사용)
 // =========================================
-function WindingControl({ api, connected, autoWindingActive, autoWindingEnabled }) {
+function WindingControl({ api, connected, autoWindingActive, autoWindingEnabled, initLayers, onToggleEnabled }) {
   const [msg, setMsg] = useState('');
+  const [layerVals, setLayerVals] = useState(initLayers || Array(25).fill('N'));
 
-  const toggleAutoWinding = async () => {
-    const r = autoWindingActive
-      ? await api.post('/api/stop-auto-winding')
-      : await api.post('/api/start-auto-winding');
-    setMsg(r.success !== false ? (autoWindingActive ? '자동 권취 중지' : '자동 권취 시작') : '실패');
-    setTimeout(()=>setMsg(''),3000);
+  // initLayers가 변경되면 반영
+  useEffect(() => {
+    if (initLayers && initLayers.length === 25) setLayerVals(initLayers);
+  }, [initLayers]);
+
+  const setLayer = (i, v) => { const a = [...layerVals]; a[i] = v; setLayerVals(a); };
+  const fillAll = (v) => setLayerVals(Array(25).fill(v));
+
+  const saveConfig = async () => {
+    await api.post('/api/set-auto-winding-config', { layers: layerVals, layer_count: 25 });
+    setMsg('설정 저장됨');
+    setTimeout(() => setMsg(''), 2000);
+  };
+
+  // 1002 수신 시 자동 전송 ON/OFF 토글
+  const toggleEnabled = async () => {
+    const newVal = !autoWindingEnabled;
+    await api.post('/api/toggle-auto-winding-enabled', { enabled: newVal });
+    if (onToggleEnabled) onToggleEnabled(newVal);
+    setMsg(newVal ? '자동 권취 활성화 (1002→1101)' : '자동 권취 비활성화');
+    setTimeout(() => setMsg(''), 2000);
+  };
+
+  // 즉시 1101 전송 (1회)
+  const sendNow = async () => {
+    const r = await api.post('/api/start-auto-winding', { layers: layerVals, layer_count: 25 });
+    setMsg(r.success !== false ? '1101 전송 완료 + FTP 업로드' : '실패 (소재정보 없음)');
+    setTimeout(() => setMsg(''), 3000);
+  };
+
+  // 진행 중 중지
+  const stopSending = async () => {
+    await api.post('/api/stop-auto-winding');
+    setMsg('중지됨');
+    setTimeout(() => setMsg(''), 2000);
   };
 
   return (
     <div className="card-body">
-      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:12}}>
-        <span style={{fontSize:13,color:'var(--text-secondary)'}}>자동 권취</span>
-        <div className={`toggle ${autoWindingActive?'on':''}`} onClick={connected ? toggleAutoWinding : undefined} style={!connected?{opacity:0.4,cursor:'not-allowed'}:{}} />
-        <span className="mono" style={{fontSize:12,color:autoWindingActive?'var(--status-ok)':'var(--text-muted)'}}>
-          {autoWindingActive ? 'ACTIVE' : 'OFF'}
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+        <span style={{fontSize:13,color:'var(--text-secondary)',whiteSpace:'nowrap'}}>1002→1101 자동</span>
+        <div className={`toggle ${autoWindingEnabled?'on':''}`}
+          onClick={connected ? toggleEnabled : undefined}
+          style={!connected?{opacity:0.4,cursor:'not-allowed'}:{}} />
+        <span className="mono" style={{fontSize:11,
+          color:autoWindingEnabled?'var(--status-ok)':'var(--text-muted)'}}>
+          {autoWindingEnabled ? 'ON' : 'OFF'}
         </span>
+        {autoWindingActive && <span className="mono" style={{fontSize:11,color:'var(--status-info)',animation:'pulse 1s infinite'}}>SENDING...</span>}
         {msg && <span className="form-msg">{msg}</span>}
       </div>
-      <div style={{fontSize:11,color:'var(--text-muted)'}}>
-        1002 소재정보 수신 시 자동으로 1101 권취상태를 Layer 1~25까지 단계적 발신합니다.
+      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>
+        ON: 1002 소재정보 수신 시 아래 판정 상태로 1101 자동 전송 + FTP 업로드.
+        <br/>번들번호/강편번호/라인은 L2 수신 정보를 사용. 25개 레이어 한 번에 전송.
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+        <span style={{fontSize:11,color:'var(--text-muted)'}}>전체 채우기:</span>
+        {['N','T','H','U'].map(v => (
+          <button key={v} className="btn btn-sm" onClick={() => fillAll(v)}
+            style={{background:v==='N'?'rgba(63,185,80,0.2)':v==='T'?'rgba(210,153,34,0.2)':v==='H'?'rgba(248,81,73,0.2)':'rgba(110,118,129,0.2)',
+                   color:v==='N'?'var(--status-ok)':v==='T'?'var(--status-warning)':v==='H'?'var(--status-critical)':'var(--status-offline)',
+                   border:'1px solid var(--border-default)',fontSize:11,padding:'2px 6px'}}>{v}</button>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(5, 1fr)',gap:4,marginTop:4}}>
+        {layerVals.map((v, i) => (
+          <div key={i} style={{display:'flex',alignItems:'center',gap:2}}>
+            <span className="mono" style={{fontSize:10,color:'var(--text-muted)',width:24}}>L{String(i+1).padStart(2,'0')}</span>
+            <select className="mono" value={v} onChange={e => setLayer(i, e.target.value)}
+              style={{flex:1,background:'var(--bg-primary)',border:'1px solid var(--border-default)',
+                     color:v==='N'?'var(--status-ok)':v==='T'?'var(--status-warning)':v==='H'?'var(--status-critical)':'var(--status-offline)',
+                     padding:'3px 4px',borderRadius:3,fontSize:12,fontFamily:'JetBrains Mono, monospace'}}>
+              <option value="N">N</option><option value="T">T</option><option value="H">H</option><option value="U">U</option>
+            </select>
+          </div>
+        ))}
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-primary btn-sm" onClick={saveConfig} disabled={!connected}>설정 저장</button>
+        {autoWindingActive
+          ? <button className="btn btn-sm" onClick={stopSending} style={{background:'rgba(248,81,73,0.2)',color:'var(--status-critical)',border:'1px solid var(--status-critical)'}}>중지</button>
+          : <button className="btn btn-success btn-sm" onClick={sendNow} disabled={!connected}>즉시 전송</button>
+        }
       </div>
     </div>
   );
@@ -528,13 +643,26 @@ function ManualWindingSend({ api, connected }) {
   const [layerVals, setLayerVals] = useState(Array(25).fill('N'));
   const [layerCount, setLayerCount] = useState(25);
   const [msg, setMsg] = useState('');
+  const [dateMode, setDateMode] = useState('auto');
+  const [manualDate, setManualDate] = useState('');
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const setLayer = (i,v) => { const a=[...layerVals]; a[i]=v; setLayerVals(a); };
   const fillAll = (v) => setLayerVals(Array(25).fill(v));
 
+  const getNowDate14 = () => {
+    const d = new Date();
+    return d.getFullYear().toString()
+      + String(d.getMonth()+1).padStart(2,'0')
+      + String(d.getDate()).padStart(2,'0')
+      + String(d.getHours()).padStart(2,'0')
+      + String(d.getMinutes()).padStart(2,'0')
+      + String(d.getSeconds()).padStart(2,'0');
+  };
+
   const send = async () => {
+    const dateVal = dateMode === 'manual' ? manualDate : '';
     const r = await api.post('/api/send-winding', {
-      ...form, layer_count: layerCount, layers: layerVals
+      ...form, layer_count: layerCount, layers: layerVals, date: dateVal
     });
     setMsg(r.success ? 'TC 1101 전송 완료' : '전송 실패 (L2 미접속?)');
     setTimeout(()=>setMsg(''),3000);
@@ -551,6 +679,32 @@ function ManualWindingSend({ api, connected }) {
         <div className="form-group"><label>Layer Count</label>
           <input type="number" min={1} max={25} value={layerCount} onChange={e=>setLayerCount(Math.min(25,Math.max(1,parseInt(e.target.value)||1)))} />
         </div>
+      </div>
+      <div style={{marginTop:8,padding:'6px 8px',background:'var(--bg-tertiary)',borderRadius:4,border:'1px solid var(--border-default)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:dateMode==='manual'?6:0}}>
+          <span style={{fontSize:11,color:'var(--text-muted)',whiteSpace:'nowrap'}}>헤더 날짜</span>
+          <button className="btn btn-sm" onClick={()=>setDateMode('auto')}
+            style={{background:dateMode==='auto'?'rgba(63,185,80,0.2)':'transparent',
+                   color:dateMode==='auto'?'var(--status-ok)':'var(--text-muted)',
+                   border:'1px solid '+(dateMode==='auto'?'var(--status-ok)':'var(--border-default)'),
+                   fontSize:11,padding:'2px 8px'}}>자동 (현재시간)</button>
+          <button className="btn btn-sm" onClick={()=>{setDateMode('manual'); if(!manualDate) setManualDate(getNowDate14());}}
+            style={{background:dateMode==='manual'?'rgba(88,166,255,0.2)':'transparent',
+                   color:dateMode==='manual'?'var(--status-info)':'var(--text-muted)',
+                   border:'1px solid '+(dateMode==='manual'?'var(--status-info)':'var(--border-default)'),
+                   fontSize:11,padding:'2px 8px'}}>수동 입력</button>
+        </div>
+        {dateMode === 'manual' && (
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <input className="mono" value={manualDate} onChange={e=>setManualDate(e.target.value)} maxLength={14}
+              placeholder="YYYYMMDDHHmmss"
+              style={{flex:1,background:'var(--bg-primary)',border:'1px solid var(--border-default)',
+                     color:'var(--status-info)',padding:'4px 6px',borderRadius:3,fontSize:12,letterSpacing:'0.5px'}} />
+            <span className="mono" style={{fontSize:10,color:manualDate.length===14&&/^\d{14}$/.test(manualDate)?'var(--status-ok)':'var(--status-critical)'}}>
+              {manualDate.length}/14
+            </span>
+          </div>
+        )}
       </div>
       <div style={{marginTop:8,marginBottom:4,display:'flex',alignItems:'center',gap:8}}>
         <span style={{fontSize:11,color:'var(--text-muted)'}}>전체 채우기:</span>
@@ -589,12 +743,25 @@ function ManualResultChangeSend({ api, connected }) {
   const [form, setForm] = useState({bundle_no:'S78588B031',mtrl_no:'S78588069',line_no:'A'});
   const [files, setFiles] = useState(Array(10).fill(''));
   const [msg, setMsg] = useState('');
+  const [dateMode, setDateMode] = useState('auto');
+  const [manualDate, setManualDate] = useState('');
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const setFile = (i,v) => { const a=[...files]; a[i]=v; setFiles(a); };
 
+  const getNowDate14 = () => {
+    const d = new Date();
+    return d.getFullYear().toString()
+      + String(d.getMonth()+1).padStart(2,'0')
+      + String(d.getDate()).padStart(2,'0')
+      + String(d.getHours()).padStart(2,'0')
+      + String(d.getMinutes()).padStart(2,'0')
+      + String(d.getSeconds()).padStart(2,'0');
+  };
+
   const send = async () => {
+    const dateVal = dateMode === 'manual' ? manualDate : '';
     const r = await api.post('/api/send-result-change', {
-      ...form, filenames: files
+      ...form, filenames: files, date: dateVal
     });
     setMsg(r.success ? 'TC 1010 전송 완료' : '전송 실패 (L2 미접속?)');
     setTimeout(()=>setMsg(''),3000);
@@ -608,6 +775,32 @@ function ManualResultChangeSend({ api, connected }) {
         <div className="form-group"><label>작업 Line</label>
           <select value={form.line_no} onChange={e=>set('line_no',e.target.value)}><option value="A">A</option><option value="B">B</option></select>
         </div>
+      </div>
+      <div style={{marginTop:8,padding:'6px 8px',background:'var(--bg-tertiary)',borderRadius:4,border:'1px solid var(--border-default)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:dateMode==='manual'?6:0}}>
+          <span style={{fontSize:11,color:'var(--text-muted)',whiteSpace:'nowrap'}}>헤더 날짜</span>
+          <button className="btn btn-sm" onClick={()=>setDateMode('auto')}
+            style={{background:dateMode==='auto'?'rgba(63,185,80,0.2)':'transparent',
+                   color:dateMode==='auto'?'var(--status-ok)':'var(--text-muted)',
+                   border:'1px solid '+(dateMode==='auto'?'var(--status-ok)':'var(--border-default)'),
+                   fontSize:11,padding:'2px 8px'}}>자동 (현재시간)</button>
+          <button className="btn btn-sm" onClick={()=>{setDateMode('manual'); if(!manualDate) setManualDate(getNowDate14());}}
+            style={{background:dateMode==='manual'?'rgba(88,166,255,0.2)':'transparent',
+                   color:dateMode==='manual'?'var(--status-info)':'var(--text-muted)',
+                   border:'1px solid '+(dateMode==='manual'?'var(--status-info)':'var(--border-default)'),
+                   fontSize:11,padding:'2px 8px'}}>수동 입력</button>
+        </div>
+        {dateMode === 'manual' && (
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <input className="mono" value={manualDate} onChange={e=>setManualDate(e.target.value)} maxLength={14}
+              placeholder="YYYYMMDDHHmmss"
+              style={{flex:1,background:'var(--bg-primary)',border:'1px solid var(--border-default)',
+                     color:'var(--status-info)',padding:'4px 6px',borderRadius:3,fontSize:12,letterSpacing:'0.5px'}} />
+            <span className="mono" style={{fontSize:10,color:manualDate.length===14&&/^\d{14}$/.test(manualDate)?'var(--status-ok)':'var(--status-critical)'}}>
+              {manualDate.length}/14
+            </span>
+          </div>
+        )}
       </div>
       <div style={{marginTop:8}}>
         <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:4}}>파일명 (최대 10개, 각 50자)</div>
@@ -784,7 +977,12 @@ function App() {
   const [setup, setSetup] = useState(null);
   const [material, setMaterial] = useState(null);
   const [resultChange, setResultChange] = useState(null);
+  const [fileRenameResults, setFileRenameResults] = useState(null);
+  const [ftpUploadResults, setFtpUploadResults] = useState(null);
   const [autoWindingActive, setAutoWindingActive] = useState(false);
+  const [autoWindingEnabled, setAutoWindingEnabled] = useState(false);
+  const [autoWindingLayers, setAutoWindingLayers] = useState(Array(25).fill('N'));
+  const [autoWindingLayerCount, setAutoWindingLayerCount] = useState(25);
   const [alivePaused, setAlivePaused] = useState(false);
   const [logs, setLogs] = useState([]);
   const logIdRef = useRef(0);
@@ -807,6 +1005,9 @@ function App() {
       if (data.material) setMaterial(data.material);
       if (data.result_change) setResultChange(data.result_change);
       if (data.auto_winding_active !== undefined) setAutoWindingActive(data.auto_winding_active);
+      if (data.status && data.status.auto_winding_enabled !== undefined) setAutoWindingEnabled(data.status.auto_winding_enabled);
+      if (data.auto_winding_layers) setAutoWindingLayers(data.auto_winding_layers);
+      if (data.auto_winding_layer_count !== undefined) setAutoWindingLayerCount(data.auto_winding_layer_count);
       if (data.alive_paused !== undefined) setAlivePaused(data.alive_paused);
       if (data.coils && data.coils.length > 0) {
         const c = data.coils[data.coils.length - 1];
@@ -833,12 +1034,25 @@ function App() {
     on('result_change_received', (data) => {
       setResultChange(data);
     });
+    on('file_renamed', (data) => {
+      setFileRenameResults(data);
+    });
+    on('ftp_upload_result', (data) => {
+      setFtpUploadResults(data);
+    });
     on('winding_status', (data) => {
       if (data.layers) setLayers(data.layers.map(l => l.status));
       setLayerCount(data.layer_count || 0);
     });
     on('auto_winding_changed', (data) => {
       setAutoWindingActive(data.active);
+    });
+    on('auto_winding_enabled_changed', (data) => {
+      setAutoWindingEnabled(data.enabled);
+    });
+    on('auto_winding_config_changed', (data) => {
+      if (data.layers) setAutoWindingLayers(data.layers);
+      if (data.layer_count !== undefined) setAutoWindingLayerCount(data.layer_count);
     });
     on('alive_paused_changed', (data) => {
       setAlivePaused(data.paused);
@@ -869,13 +1083,13 @@ function App() {
             <div className="grid-row grid-top">
               <div className="card">
                 <div className="card-header">L2 수신 정보</div>
-                <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} /></div>
+                <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} fileRenameResults={fileRenameResults} ftpUploadResults={ftpUploadResults} /></div>
               </div>
               <div className="card">
                 <div className="card-header">
                   <span>25-Layer 권취상태 (SPL → L2)</span>
-                  <span className="mono" style={{fontSize:11,color:autoWindingActive?'var(--status-ok)':'var(--text-muted)'}}>
-                    {autoWindingActive ? 'AUTO' : 'MANUAL'}
+                  <span className="mono" style={{fontSize:11,color:autoWindingEnabled?'var(--status-ok)':'var(--text-muted)'}}>
+                    {autoWindingEnabled ? 'AUTO' : 'MANUAL'}
                   </span>
                 </div>
                 <div className="card-body"><LayerGrid layers={layers} layerCount={layerCount} /></div>
@@ -899,8 +1113,10 @@ function App() {
               <ManualWindingSend api={api} connected={tcpConnected} />
             </div>
             <div className="card">
-              <div className="card-header">자동 판정 시뮬레이션</div>
-              <WindingControl api={api} connected={tcpConnected} autoWindingActive={autoWindingActive} autoWindingEnabled={true} />
+              <div className="card-header">자동 권취 (1002 수신 → 1101 자동 전송)</div>
+              <WindingControl api={api} connected={tcpConnected} autoWindingActive={autoWindingActive}
+                autoWindingEnabled={autoWindingEnabled} initLayers={autoWindingLayers}
+                onToggleEnabled={setAutoWindingEnabled} />
             </div>
             <div className="card">
               <div className="card-header">Alive 발신 제어 (1199)</div>
@@ -917,7 +1133,7 @@ function App() {
             </div>
             <div className="card">
               <div className="card-header">L2 수신 정보</div>
-              <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} /></div>
+              <div className="card-body"><ReceivedInfo setup={setup} material={material} resultChange={resultChange} fileRenameResults={fileRenameResults} ftpUploadResults={ftpUploadResults} /></div>
             </div>
           </>
         )}

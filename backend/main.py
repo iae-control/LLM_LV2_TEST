@@ -37,12 +37,20 @@ parser = argparse.ArgumentParser(description="SPL Winding Monitor Backend")
 parser.add_argument("--l2-host", default="127.0.0.1", help="L2 서버 IP (default: 127.0.0.1)")
 parser.add_argument("--l2-port", type=int, default=12147, help="L2 서버 PORT (default: 12147)")
 parser.add_argument("--api-port", type=int, default=8080, help="REST/WS API PORT (default: 8080)")
+parser.add_argument("--image-dir", default="", help="1010 수신 시 파일명 변경 대상 디렉토리 (예: D:\\DATA)")
+parser.add_argument("--ftp-host", default="130.1.1.30", help="FTP 서버 IP (default: 130.1.1.30)")
+parser.add_argument("--ftp-user", default="spl_ftp", help="FTP 사용자 ID (default: spl_ftp)")
+parser.add_argument("--ftp-pass", default="!spl_ftP", help="FTP 비밀번호 (default: !spl_ftP)")
+parser.add_argument("--ftp-dir", default="RECV", help="FTP 접속 폴더 (default: RECV)")
 args, _ = parser.parse_known_args()
 
 # 공유 인스턴스
 data_store = DataStore()
 ws_manager = WebSocketManager()
-tcp_client = SPLTCPClient(data_store, ws_manager, host=args.l2_host, port=args.l2_port)
+tcp_client = SPLTCPClient(data_store, ws_manager, host=args.l2_host, port=args.l2_port,
+                          image_dir=args.image_dir,
+                          ftp_host=args.ftp_host, ftp_user=args.ftp_user,
+                          ftp_pass=args.ftp_pass, ftp_dir=args.ftp_dir)
 
 
 @asynccontextmanager
@@ -84,6 +92,9 @@ def main():
     print("  SPL Winding Status Monitor")
     print(f"  L2 Server : {args.l2_host}:{args.l2_port}")
     print(f"  API Server: http://0.0.0.0:{args.api_port}")
+    if args.image_dir:
+        print(f"  Image Dir : {args.image_dir}")
+    print(f"  FTP Server: ftp://{args.ftp_user}@{args.ftp_host}/{args.ftp_dir}/")
     print("=" * 50)
 
     uvicorn.run(
