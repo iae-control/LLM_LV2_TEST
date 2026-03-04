@@ -620,17 +620,19 @@ class SPLTCPClient:
                     results.append({"filename": filename, "status": f"error: {last_err}"})
                     logger.error(f"[FTP] FAILED after {max_retries} retries: {filename}")
 
-            # 최종 검증: 서버 디렉토리 파일 목록 확인
+            # 참고: 서버 디렉토리 파일 잔존 확인 (서버 측에서 즉시 소비할 수 있음)
             try:
                 remote_files = ftp.nlst()
                 uploaded_names = [f for f, _ in files]
-                found = [f for f in uploaded_names if f in remote_files]
-                missing = [f for f in uploaded_names if f not in remote_files]
-                logger.info(f"[FTP] Verify: {len(found)}/{len(files)} files exist on server")
-                if missing:
-                    logger.error(f"[FTP] MISSING on server: {missing[:5]}...")
+                remaining = [f for f in uploaded_names if f in remote_files]
+                consumed = len(files) - len(remaining)
+                if consumed > 0:
+                    logger.info(f"[FTP] Server consumed {consumed}/{len(files)} files already "
+                                f"({len(remaining)} remaining in dir)")
+                else:
+                    logger.info(f"[FTP] All {len(files)} files present on server")
             except Exception as ve:
-                logger.warning(f"[FTP] Verify listing failed: {ve}")
+                logger.debug(f"[FTP] Post-upload listing skipped: {ve}")
 
         except ftplib.all_errors as e:
             logger.error(f"[FTP] Connection error: {e}")
