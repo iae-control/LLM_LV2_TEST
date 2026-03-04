@@ -490,10 +490,10 @@ class SPLTCPClient:
             logger.warning(f"[FTP] Seed file not found: {seed_path}")
             return [{"filename": "seed.jpg", "status": "seed_not_found"}]
 
-        # layer_count 만큼의 파일 생성
+        # 항상 25개 레이어 파일 생성 (TC 1101은 고정 25 슬롯)
         generated_files = []
         try:
-            for i in range(layer_count):
+            for i in range(25):
                 status = layers[i] if i < len(layers) else "N"
                 filename = (
                     f"{date_str}_{bundle_no}_{mtrl_no}"
